@@ -132,7 +132,7 @@ export function ClementineGame() {
       if (ev === "dig-again" && game.hangingCount > 1) return say("Another strip. Now two things are hanging off this clementine.");
       if (ev === "snap") return say(`${SNAPS[game.snapReason]} ${plural(game.pieceCount, "piece", "pieces")}.`);
       if (ev === "release") {
-        if (releases.current++ === 0) say("You let go. It just hangs there. Grab it to carry on.");
+        if (releases.current++ === 0) say("You let go. It just hangs there. Grab the torn end to carry on.");
         return;
       }
       if (ev === "pick") {
@@ -253,9 +253,9 @@ export function ClementineGame() {
       </div>
       <h1 className="serif play-title">Peel a Clementine in One Piece</h1>
       <p className="play-lede">
-        Press into the peel to dig a thumbnail in, then hold and pull the strip around the fruit. Let go and it just hangs
-        there; grab it again to carry on. The peel only tears so fast. Pull faster, or turn too sharply, and it becomes
-        two pieces.
+        Press into the peel to dig a thumbnail in, then hold and drag. The tear follows your cursor and the peel trails
+        behind it. Let go and it just hangs there; grab the torn end to carry on. The peel only tears so fast. Move
+        faster, or turn too sharply, and it becomes two pieces.
       </p>
       <div className="stage">
         <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A clementine on a plate, seen from above, with an empty patch of table for the peel." />
