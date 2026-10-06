@@ -181,10 +181,9 @@ export class Sheet {
     return this.elKeys.has(a * N + b) || this.elKeys.has(b * N + a);
   }
 
-  // Fresh out of the dryer: start flat, then let a "hand" make a few careless
-  // drags with the same physics the player uses, so the folds look natural.
-  scramble(seed: number) {
-    const r = rng(seed);
+  // Every round starts the same way: the sheet spread out flat on the bed, elastic corners
+  // and all, left a moment to settle. The mess is up to you.
+  scramble(_seed: number) {
     this.x.set(this.rx);
     this.y.set(this.ry);
     this.px.set(this.rx);
@@ -198,27 +197,6 @@ export class Sheet {
     this.heldSet = new Set();
     this.level = 0;
     this.updateSigns(true);
-    const edge: number[] = [];
-    for (let i = 0; i < NX; i++) edge.push(idx(i, 0), idx(i, NY - 1));
-    for (let j = 1; j < NY - 1; j++) edge.push(idx(0, j), idx(NX - 1, j));
-    for (let m = 0; m < 3; m++) {
-      const k = r() < 0.55 ? this.corners[(r() * 4) | 0] : edge[(r() * edge.length) | 0];
-      const gx = W / 2 + (r() - 0.5) * 240;
-      const gy = H / 2 + (r() - 0.5) * 150;
-      this.held = k;
-      this.heldSet = new Set([k]);
-      this.level += 1;
-      const x0 = this.x[k];
-      const y0 = this.y[k];
-      for (let t = 1; t <= 48; t++) {
-        const f = Math.min(1, t / 36);
-        this.move(x0 + (gx - x0) * f, y0 + (gy - y0) * f);
-        this.step();
-      }
-      this.held = -1;
-      this.heldSet = new Set();
-      for (let t = 0; t < 6; t++) this.step();
-    }
     for (let t = 0; t < 24; t++) this.step();
     this.groups = [];
   }
