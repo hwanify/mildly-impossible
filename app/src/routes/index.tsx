@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SheetThumb, TapeArt, DuvetArt } from "../components/chores/ChoreArt";
+import { SheetThumb, TapeThumb, DuvetArt } from "../components/chores/ChoreArt";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -30,16 +30,18 @@ function Index() {
             </div>
           </div>
         </Link>
-        <div className="task soon" aria-disabled="true">
+        <Link to="/tape" className="task">
           <div className="task-thumb">
-            <TapeArt />
+            <TapeThumb />
           </div>
           <div className="task-body">
             <div className="serif task-name">Find the End of the Tape</div>
             <p className="task-desc">It is definitely there. Your thumbnail has been around twice.</p>
-            <div className="task-meta">Coming soon</div>
+            <div className="task-meta">
+              <span>Try it</span> →
+            </div>
           </div>
-        </div>
+        </Link>
         <div className="task soon" aria-disabled="true">
           <div className="task-thumb">
             <DuvetArt />

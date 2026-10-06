@@ -66,3 +66,8 @@ a.task:hover .task-meta span{text-decoration:underline;text-underline-offset:3px
 .btn-keep{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);cursor:pointer;padding:4px 0}
 .btn-keep:hover{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.meter{position:absolute;right:16px;bottom:14px;font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--muted);background:rgba(251,250,247,.9);border:1px solid var(--line);border-radius:8px;padding:5px 10px;pointer-events:none}
+.btn-light{font:inherit;font-size:15px;background:#fff;color:var(--ink);border:1px solid #cfccc4;border-radius:999px;padding:11px 18px;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.btn-light:hover{border-color:var(--ink)}
+.btn-light.on{background:var(--ink);color:#F6F4EF;border-color:var(--ink)}
+a.btn-keep{text-decoration:none}

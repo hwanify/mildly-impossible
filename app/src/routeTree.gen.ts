@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TapeRouteImport } from './routes/tape'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as FittedSheetRouteImport } from './routes/fitted-sheet'
 import { Route as IndexRouteImport } from './routes/index'
 
+const TapeRoute = TapeRouteImport.update({
+  id: '/tape',
+  path: '/tape',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
@@ -40,12 +46,14 @@ export interface FileRoutesByFullPath {
   '/fitted-sheet': typeof FittedSheetRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tape': typeof TapeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/fitted-sheet': typeof FittedSheetRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tape': typeof TapeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,20 @@ export interface FileRoutesById {
   '/fitted-sheet': typeof FittedSheetRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/tape': typeof TapeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/fitted-sheet' | '/robots.txt' | '/sitemap.xml'
+  fullPaths: '/' | '/fitted-sheet' | '/robots.txt' | '/sitemap.xml' | '/tape'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fitted-sheet' | '/robots.txt' | '/sitemap.xml'
-  id: '__root__' | '/' | '/fitted-sheet' | '/robots.txt' | '/sitemap.xml'
+  to: '/' | '/fitted-sheet' | '/robots.txt' | '/sitemap.xml' | '/tape'
+  id:
+    | '__root__'
+    | '/'
+    | '/fitted-sheet'
+    | '/robots.txt'
+    | '/sitemap.xml'
+    | '/tape'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,10 +82,18 @@ export interface RootRouteChildren {
   FittedSheetRoute: typeof FittedSheetRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  TapeRoute: typeof TapeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/tape': {
+      id: '/tape'
+      path: '/tape'
+      fullPath: '/tape'
+      preLoaderRoute: typeof TapeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sitemap.xml': {
       id: '/sitemap.xml'
       path: '/sitemap.xml'
@@ -107,6 +130,7 @@ const rootRouteChildren: RootRouteChildren = {
   FittedSheetRoute: FittedSheetRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  TapeRoute: TapeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
