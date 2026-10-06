@@ -1,0 +1,10 @@
+.price-sticker-meter{display:flex;align-items:center;gap:10px}
+.price-sticker-zone{min-width:96px}
+.price-sticker-zone.price-sticker-ok{color:var(--denim)}
+.price-sticker-zone.price-sticker-glue{color:var(--ink)}
+.price-sticker-zone.price-sticker-tear{color:#B4492F;font-weight:600}
+.price-sticker-bar{position:relative;width:110px;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.price-sticker-band{position:absolute;top:0;bottom:0;background:#D6CDBE}
+.price-sticker-band.price-sticker-hot{background:#E3B3A4}
+.price-sticker-bar b{position:absolute;top:-1px;width:3px;height:8px;margin-left:-1.5px;background:var(--ink);border-radius:2px}
+@media (max-width:560px){.price-sticker-meter{font-size:12px;padding:4px 8px;gap:8px;right:10px;bottom:10px}.price-sticker-zone{min-width:0}.price-sticker-bar{width:56px}.price-sticker-off{display:none}}
