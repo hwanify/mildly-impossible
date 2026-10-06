@@ -4,7 +4,7 @@
 // Peel too fast and it tears or leaves glue. The wider the strip coming up at once, the slower you have
 // to go, so working in from several edges beats one big pull. A thin film of the strongest glue always
 // stays behind, and rubbing it with a thumb only goes so far. Every round rolls a different sticker: kind, size,
-// angle, position, which corner is lifted (if any), extra stickers on top, hidden glue, and
+// angle, position, extra stickers on top, hidden glue, and
 // sometimes an older sticker underneath. Pure module, SSR safe (no globals at top level).
 export const W = 1000;
 export const H = 640;
@@ -14,6 +14,10 @@ const CELL = 4;
 const RAD = 8;
 const BOOK = { x0: 262, y0: 34, x1: 738, y1: 606 };
 const TS = 3; // texture resolution per local unit
+// Nothing starts lifted: every sticker begins flat, so a fingernail has to find an edge. It is quick at it:
+// pressing within NAIL_REACH of an edge and wiggling NAIL_WORK units is enough to get a corner up.
+const NAIL_REACH = 20;
+const NAIL_WORK = 14;
 
 const STUCK = 1;
 const FLAP = 2;
@@ -281,8 +285,8 @@ export class Sticker {
     this.fibres = new Float32Array(n * 2).map(() => rand() * Math.PI);
 
     const topPrice = PRICES[Math.floor(rand() * PRICES.length)];
-    this.layers.push(this.makeLayer(kind, top, topPrice, thumb || rand() < 0.8, thumb ? 1 : rand() < 0.3 ? 0 : rand() < 0.7 ? 1 : 2, true));
-    if (under) this.layers.push(this.makeLayer("aged", under, Math.max(2.99, topPrice - 2 - Math.floor(rand() * 4)), rand() < 0.4, 0, false));
+    this.layers.push(this.makeLayer(kind, top, topPrice, thumb, thumb ? 1 : rand() < 0.3 ? 0 : rand() < 0.7 ? 1 : 2, true));
+    if (under) this.layers.push(this.makeLayer("aged", under, Math.max(2.99, topPrice - 2 - Math.floor(rand() * 4)), false, 0, false));
     for (let k = 0; k < n; k++) {
       const m = this.center(k);
       if (this.layers.some((l) => inShape(l.shape, m.x, m.y))) this.total++;
@@ -757,7 +761,7 @@ export class Sticker {
     const q = this.toLocal(x, y);
     if (this.rubbing) return this.overBook(x, y) ? "grab" : "default";
     if (this.hitFlap(q) || this.parkedAt(q)) return "grab";
-    return this.edgeNear(q, 12) >= 0 ? "grab" : "default";
+    return this.edgeNear(q, NAIL_REACH) >= 0 ? "grab" : "default";
   }
 
   private overBook(x: number, y: number) {
@@ -845,7 +849,7 @@ export class Sticker {
       this.grabAt = q;
       return "grab";
     }
-    const e = this.edgeNear(q, 12);
+    const e = this.edgeNear(q, NAIL_REACH);
     if (e >= 0) {
       this.park();
       this.state = "scratch";
@@ -866,11 +870,11 @@ export class Sticker {
     if (this.state === "rubbing") return this.rubAlong(prev, q);
     if (this.state !== "scratch") return null;
     this.travel += moved;
-    if (this.travel < 45) return null;
+    if (this.travel < NAIL_WORK) return null;
     // a fingernail finally gets under it
     const b = this.center(this.scratchAt);
     const n0 = this.inward(b);
-    this.startFlap({ x: b.x - n0.x * 2.5, y: b.y - n0.y * 2.5 }, n0, 14);
+    this.startFlap({ x: b.x - n0.x * 2.5, y: b.y - n0.y * 2.5 }, n0, 20);
     this.edges++;
     this.state = "held";
     this.base = { ...this.p };

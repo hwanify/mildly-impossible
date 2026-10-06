@@ -104,7 +104,7 @@ export function Game() {
     const asked = round === 0 ? Number(new URLSearchParams(window.location.search).get("seed")) : 0;
     const game = new Sticker(asked || Date.now());
     startRef.current = null;
-    const introAt = window.setTimeout(() => say(game.lifted ? game.props.intro : `${game.props.intro} Nothing is lifted.`), 300);
+    const introAt = window.setTimeout(() => say(game.lifted ? game.props.intro : `${game.props.intro} Nothing is lifted. Pick at an edge.`), 300);
     tears.current = 0;
     let raf = 0;
     let last = performance.now();
