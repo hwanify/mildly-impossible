@@ -16,6 +16,13 @@ const ITER = 18;
 export const SNAP = 46;
 const GRAB = 40;
 const TRI_REST = S * S; // a triangle's cross product when lying flat
+// The two sides of the cloth: printed denim on the right side, plain and pale on the wrong side.
+const FRONT = "#6E86A4";
+const STRIPE = "rgba(255,255,255,0.28)";
+const BACK = "#DDE3EA";
+const CREASE = "rgba(28,40,58,0.55)";
+const HEM = "#3E5069";
+const HEM_EL = "#2F3F55";
 const FLIP_T = TRI_REST * 0.12;
 const ORIG_AREA = QX * S * QY * S;
 
@@ -57,6 +64,14 @@ export class Sheet {
   ts = new Int8Array(TN);
   ptTris: number[][] = [];
   triEdges: (Edge[] | undefined)[] = [];
+  /** Inner edges as [p0, p1, triangle, triangle]. */
+  inner: [number, number, number, number][] = [];
+  /** The inner edges the front-side stripes run along. */
+  stripes: [number, number, number, number][] = [];
+  /** Triangles sharing an edge with each triangle. */
+  nbr: number[][] = [];
+  /** The side each triangle is drawn on (its real side, minus one-triangle specks). */
+  ds = new Int8Array(TN);
   corners: number[];
   groups: number[][] = [];
   held = -1;
@@ -125,6 +140,29 @@ export class Sheet {
       const owner = this.ptTris[p0].find((tt) => this.ta[tt] === p1 || this.tb[tt] === p1 || this.tc[tt] === p1);
       if (owner === undefined) continue;
       (this.triEdges[owner] ??= []).push([p0, p1, this.isEl(p0, p1)]);
+    }
+    // Inner edges shared by two triangles: where the two sit on different sides, that's a crease.
+    const shared = new Map<number, number[]>();
+    for (let tt = 0; tt < TN; tt++) {
+      const v = [this.ta[tt], this.tb[tt], this.tc[tt]];
+      for (let e = 0; e < 3; e++) {
+        const p = v[e];
+        const q = v[(e + 1) % 3];
+        const key = Math.min(p, q) * N + Math.max(p, q);
+        const list = shared.get(key);
+        if (list) list.push(tt);
+        else shared.set(key, [tt]);
+      }
+    }
+    for (const [key, ts] of shared) {
+      if (ts.length !== 2) continue;
+      const p = Math.floor(key / N);
+      const q = key % N;
+      this.inner.push([p, q, ts[0], ts[1]]);
+      (this.nbr[ts[0]] ??= []).push(ts[1]);
+      (this.nbr[ts[1]] ??= []).push(ts[0]);
+      // the print: pinstripes along every other column of the grid, on the right side of the cloth only
+      if (p % NX === q % NX && (p % NX) % 2 === 1) this.stripes.push([p, q, ts[0], ts[1]]);
     }
     this.scramble(seed);
   }
@@ -466,10 +504,124 @@ export class Sheet {
     return { score, compact, rect, weld, ball: false, flat: compact < 0.15 };
   }
 
+  // A fold runs across the grid, so the edges where the cloth turns over make a staircase.
+  // Join them into chains, smooth the chains, and draw each as a rolled edge: a soft band in
+  // the colour of the side on top, with a thin line along it.
+  private drawCreases(ctx: CanvasRenderingContext2D, z: number) {
+    const { x, y, tz } = this;
+    const ts = this.ds;
+    const next = new Map<number, number[]>();
+    const top = new Map<number, number>(); // per edge key: the side showing on top
+    const link = (a: number, b: number) => {
+      const l = next.get(a);
+      if (l) l.push(b);
+      else next.set(a, [b]);
+    };
+    for (const [p0, p1, t0, t1] of this.inner) {
+      if (ts[t0] === ts[t1] || Math.max(tz[t0], tz[t1]) !== z) continue;
+      link(p0, p1);
+      link(p1, p0);
+      const upper = tz[t0] === tz[t1] ? -1 : tz[t0] > tz[t1] ? ts[t0] : ts[t1];
+      top.set(Math.min(p0, p1) * N + Math.max(p0, p1), upper);
+    }
+    if (!next.size) return;
+    // snip the one-edge spurs that stick out at the corners of the staircase
+    const unlink = (a: number, b: number) => next.set(a, (next.get(a) ?? []).filter((v) => v !== b));
+    for (let pass = 0; pass < 2; pass++)
+      for (const [v, ns] of [...next]) {
+        if (ns.length !== 1) continue;
+        const u = ns[0];
+        if ((next.get(u)?.length ?? 0) < 3) continue;
+        unlink(v, u);
+        unlink(u, v);
+      }
+    const used = new Set<number>();
+    const key = (a: number, b: number) => Math.min(a, b) * N + Math.max(a, b);
+    const walk = (from: number, to: number) => {
+      const chain = [from, to];
+      used.add(key(from, to));
+      let prev = from;
+      let cur = to;
+      for (;;) {
+        const ns = next.get(cur) ?? [];
+        if (ns.length !== 2) break;
+        const nx = ns[0] === prev ? ns[1] : ns[0];
+        if (used.has(key(cur, nx))) break;
+        used.add(key(cur, nx));
+        chain.push(nx);
+        prev = cur;
+        cur = nx;
+      }
+      return chain;
+    };
+    const chains: number[][] = [];
+    // open chains first (from their ends or branch points), then whatever loops are left
+    for (const [v, ns] of next) if (ns.length !== 2) for (const n of ns) if (!used.has(key(v, n))) chains.push(walk(v, n));
+    for (const [v, ns] of next) for (const n of ns) if (!used.has(key(v, n))) chains.push(walk(v, n));
+    for (const c of chains) {
+      const closed = c.length > 3 && c[0] === c[c.length - 1];
+      // tiny rings are crumple noise, not folds
+      if ((closed && c.length < 9) || c.length < 3) continue;
+      let pts = c.map((k) => [x[k], y[k]]);
+      // iron out the zigzag first (a few passes of a 1-2-1 average), then round it off
+      for (let it = 0; it < 3 && pts.length > 2; it++) {
+        const out = pts.map((p) => [...p]);
+        const n = pts.length;
+        for (let i = 0; i < n; i++) {
+          const atEnd = i === 0 || i === n - 1;
+          if (atEnd && !closed) continue;
+          const a = pts[atEnd ? n - 2 : i - 1];
+          const b = pts[atEnd ? 1 : i + 1];
+          out[i] = [(a[0] + 2 * pts[i][0] + b[0]) / 4, (a[1] + 2 * pts[i][1] + b[1]) / 4];
+        }
+        if (closed) out[n - 1] = out[0];
+        pts = out;
+      }
+      // Chaikin, twice, keeping the ends where they are
+      for (let it = 0; it < 2 && pts.length > 2; it++) {
+        const out = [pts[0]];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const [ax, ay] = pts[i];
+          const [bx, by] = pts[i + 1];
+          out.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
+        }
+        out.push(pts[pts.length - 1]);
+        pts = out;
+      }
+      if (closed) {
+        // a thin pocket of the other side, not worth a rolled edge
+        let area = 0;
+        for (let i = 0; i < pts.length - 1; i++) area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1];
+        if (Math.abs(area) / 2 < 1600) continue;
+      }
+      let votes = 0;
+      for (let i = 0; i < c.length - 1; i++) votes += top.get(key(c[i], c[i + 1])) ?? -1;
+      const path = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      };
+      path();
+      ctx.strokeStyle = votes > 0 ? FRONT : BACK;
+      ctx.lineWidth = 11;
+      ctx.stroke();
+      path();
+      ctx.strokeStyle = CREASE;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+  }
+
   draw(ctx: CanvasRenderingContext2D, hover: number) {
     const { x, y, tz, ta, tb, tc } = this;
     const order = this.order;
-    const ts = this.ts;
+    // A single triangle turned over among neighbours that are not is a crumple, not a fold:
+    // draw it on its neighbours' side so it doesn't show up as a speck of the other colour.
+    const ts = this.ds;
+    for (let t = 0; t < TN; t++) {
+      const nb = this.nbr[t] ?? [];
+      ts[t] = nb.length > 0 && nb.every((o) => this.ts[o] !== this.ts[t]) ? this.ts[nb[0]] : this.ts[t];
+    }
     order.sort((p, q) => tz[p] - tz[q] || ts[q] - ts[p] || p - q);
     const triPath = (t: number, ox: number, oy: number) => {
       ctx.moveTo(x[ta[t]] + ox, y[ta[t]] + oy);
@@ -483,6 +635,21 @@ export class Sheet {
     ctx.fill();
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    // Each side as one shape: every triangle wound the same way, so they merge with no seams.
+    const sidePath = (from: number, to: number, side: number) => {
+      ctx.beginPath();
+      for (let n = from; n < to; n++) {
+        const t = order[n];
+        if (ts[t] !== side) continue;
+        const a = ta[t];
+        const b = this.triCross(t) >= 0 ? tb[t] : tc[t];
+        const c = b === tb[t] ? tc[t] : tb[t];
+        ctx.moveTo(x[a], y[a]);
+        ctx.lineTo(x[b], y[b]);
+        ctx.lineTo(x[c], y[c]);
+        ctx.closePath();
+      }
+    };
     let start = 0;
     while (start < order.length) {
       const z = tz[order[start]];
@@ -494,44 +661,50 @@ export class Sheet {
         for (let n = start; n < end; n++) triPath(order[n], 2.5, 4);
         ctx.fill();
       }
-      for (let n = start; n < end; n++) {
-        const t = order[n];
-        // Colour follows how far the triangle has actually turned over, so creases
-        // read as a soft rolled edge instead of hard grid teeth.
-        const cr = this.triCross(t) / TRI_REST;
-        const f = clamp01((cr + 0.6) / 1.2);
-        const turn = f * f * (3 - 2 * f);
-        const shade = 0.8 + 0.2 * Math.min(1, Math.abs(cr) * 1.6);
-        const col = `hsl(213 ${(26 + 4 * turn).toFixed(1)}% ${((85 - 14 * turn) * shade).toFixed(1)}%)`;
+      const here = (t: number) => tz[t] === z;
+      // the right side: denim, with its pinstripes
+      sidePath(start, end, 1);
+      ctx.fillStyle = FRONT;
+      ctx.fill();
+      ctx.strokeStyle = STRIPE;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      for (const [p0, p1, t0, t1] of this.stripes) {
+        if (!((here(t0) && ts[t0] > 0) || (here(t1) && ts[t1] > 0))) continue;
+        ctx.moveTo(x[p0], y[p0]);
+        ctx.lineTo(x[p1], y[p1]);
+      }
+      ctx.stroke();
+      // the wrong side: plain and pale
+      sidePath(start, end, -1);
+      ctx.fillStyle = BACK;
+      ctx.fill();
+      // creases, where the cloth turns over; drawn with the upper of the two layers
+      this.drawCreases(ctx, z);
+      // the hem goes on last, so nothing in this layer paints over it
+      for (const el of [false, true]) {
+        ctx.strokeStyle = el ? HEM_EL : HEM;
+        ctx.lineWidth = el ? 3.4 : 2;
         ctx.beginPath();
-        triPath(t, 0, 0);
-        ctx.fillStyle = col;
-        ctx.fill();
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 0.7;
-        ctx.stroke();
-        const edges = this.triEdges[t];
-        if (!edges) continue;
-        for (const [p0, p1, el] of edges) {
-          ctx.strokeStyle = el ? "#4A5F78" : "#6F86A1";
-          ctx.lineWidth = el ? 3.4 : 1.7;
-          ctx.beginPath();
-          ctx.moveTo(x[p0], y[p0]);
-          ctx.lineTo(x[p1], y[p1]);
-          ctx.stroke();
-          if (el) {
+        for (let n = start; n < end; n++) {
+          const edges = this.triEdges[order[n]];
+          if (!edges) continue;
+          for (const [p0, p1, e] of edges) {
+            if (e !== el) continue;
+            ctx.moveTo(x[p0], y[p0]);
+            ctx.lineTo(x[p1], y[p1]);
+            if (!el) continue;
+            // gathered elastic
             const mx = (x[p0] + x[p1]) / 2;
             const my = (y[p0] + y[p1]) / 2;
             const dx = x[p1] - x[p0];
             const dy = y[p1] - y[p0];
             const d = Math.hypot(dx, dy) || 1;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
             ctx.moveTo(mx - (dy / d) * 3.5, my + (dx / d) * 3.5);
             ctx.lineTo(mx + (dy / d) * 3.5, my - (dx / d) * 3.5);
-            ctx.stroke();
           }
         }
+        ctx.stroke();
       }
       start = end;
     }
