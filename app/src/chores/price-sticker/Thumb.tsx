@@ -13,11 +13,12 @@ export function Thumb() {
       const r = canvas.getBoundingClientRect();
       canvas.width = Math.round(r.width * dpr);
       canvas.height = Math.round(r.height * dpr);
-      const s = new Sticker(11);
-      s.pose(150, 96);
+      const s = new Sticker(139, { thumb: true });
+      s.pose(0.38);
       const sc = canvas.width / W;
       const z = 2;
-      const [cx, cy] = [470, 378];
+      const m = s.middle;
+      const [cx, cy] = [m.x + 18, m.y + 24];
       ctx.setTransform(sc * z, 0, 0, sc * z, sc * (W / 2 - cx * z), sc * (320 - cy * z));
       s.draw(ctx);
     };
