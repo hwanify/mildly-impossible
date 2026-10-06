@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Sticker, W, H, CLEAN, RISKY, SPEED_MAX, stickerTier, type StickerEvent, type StickerResult } from "./engine";
+import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
 
 const STEPS = ["Pinch the lifted corner", "Fold it back over itself, slowly", "Get all of it off"];
+const NO_CORNER = "Pick at an edge until a corner lifts";
 const TEARS = ["It tore. Of course it tore.", "Another piece. It's a collection now.", "You now own several stickers.", "This is just confetti with a barcode."];
 const LINES: Partial<Record<StickerEvent, string>> = {
   grab: "Slowly. Slower than that.",
@@ -13,6 +14,7 @@ const LINES: Partial<Record<StickerEvent, string>> = {
   busy: "One corner at a time.",
   scratch: "You pick at it with a fingernail.",
   lift: "There. A new corner.",
+  stubborn: "It's holding on here. Slower.",
 };
 
 const fmt = (ms: number) => {
@@ -29,6 +31,8 @@ export function Game() {
   const toastTimer = useRef<number | undefined>(undefined);
   const [round, setRound] = useState(0);
   const [done, setDone] = useState<boolean[]>(() => STEPS.map(() => false));
+  const [steps, setSteps] = useState(STEPS);
+  const [zones, setZones] = useState({ glueAt: 150, tearAt: 215 });
   const [time, setTime] = useState(0);
   const [meter, setMeter] = useState({ speed: 0, stress: 0, peeled: 0 });
   const [toast, setToast] = useState<string | null>(null);
@@ -93,8 +97,13 @@ export function Game() {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const game = new Sticker(Date.now());
+    // ?seed=123 replays a particular first sticker; every new copy after that is random
+    const asked = round === 0 ? Number(new URLSearchParams(window.location.search).get("seed")) : 0;
+    const game = new Sticker(asked || Date.now());
     startRef.current = null;
+    setSteps(game.lifted ? STEPS : [NO_CORNER, ...STEPS.slice(1)]);
+    setZones({ glueAt: game.props.glueAt, tearAt: game.props.tearAt });
+    const introAt = window.setTimeout(() => say(game.lifted ? game.props.intro : `${game.props.intro} Nothing is lifted.`), 300);
     tears.current = 0;
     let raf = 0;
     let last = performance.now();
@@ -112,7 +121,7 @@ export function Game() {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     // On narrow screens the camera moves in on the sticker and the room it needs to be pulled across.
-    const view = () => (canvas.getBoundingClientRect().width < 640 ? { z: 1.55, cx: 590, cy: 410 } : { z: 1, cx: W / 2, cy: H / 2 });
+    const view = () => (canvas.getBoundingClientRect().width < 640 ? { z: 1.55, cx: game.view.x, cy: game.view.y } : { z: 1, cx: W / 2, cy: H / 2 });
     const toWorld = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
       const v = view();
@@ -125,7 +134,7 @@ export function Game() {
       const t = startRef.current === null ? 0 : performance.now() - startRef.current;
       setTime(t);
       setDone([true, true, true]);
-      setResult({ clean: game.clean, pieces: game.pieces, glue: game.glueCells, scratches: game.scratches, time: t });
+      setResult({ clean: game.clean, pieces: game.pieces, layers: game.layers.length, glue: game.glueCells, scratches: game.scratches, time: t, kind: game.layers[0].kind });
     };
     const handle = (ev: StickerEvent | null) => {
       if (!ev) return;
@@ -142,6 +151,12 @@ export function Game() {
         return;
       }
       if (ev === "lift") rasp(3200, 0.05, 0.05);
+      if (ev === "under") {
+        pop();
+        setZones({ glueAt: game.props.glueAt, tearAt: game.props.tearAt });
+        say(game.hasFlap ? "There's another one underneath. It was cheaper." : "There's another one underneath. It was cheaper. Nothing is lifted.");
+        return;
+      }
       const line = LINES[ev];
       if (line) say(line);
     };
@@ -151,6 +166,7 @@ export function Game() {
       const ev = game.down(p.x, p.y);
       if (!ev) return;
       if (ev === "grab" || ev === "scratch") {
+        window.clearTimeout(introAt);
         if (startRef.current === null) startRef.current = performance.now();
         e.preventDefault();
         canvas.setPointerCapture(e.pointerId);
@@ -211,6 +227,7 @@ export function Game() {
       if (startRef.current !== null && !resultRef.current) setTime(performance.now() - startRef.current);
     }, 100);
     return () => {
+      window.clearTimeout(introAt);
       cancelAnimationFrame(raf);
       window.clearInterval(ui);
       ro.disconnect();
@@ -231,8 +248,9 @@ export function Game() {
   };
 
   const tier = result ? stickerTier(result) : null;
-  const zone = meter.speed < CLEAN ? "Slow and clean" : meter.speed < RISKY ? "Leaving glue" : "About to tear";
-  const zoneKey = meter.speed < CLEAN ? "ok" : meter.speed < RISKY ? "glue" : "tear";
+  const { glueAt, tearAt } = zones;
+  const zone = meter.speed < glueAt ? "Slow and clean" : meter.speed < tearAt ? "Leaving glue" : "About to tear";
+  const zoneKey = meter.speed < glueAt ? "ok" : meter.speed < tearAt ? "glue" : "tear";
 
   return (
     <>
@@ -256,8 +274,8 @@ export function Game() {
           <div className="meter price-sticker-meter" aria-live="off">
             <span className={`price-sticker-zone price-sticker-${zoneKey}`}>{zone}</span>
             <span className="price-sticker-bar" aria-hidden="true">
-              <i style={{ left: `${(CLEAN / SPEED_MAX) * 100}%`, width: `${((RISKY - CLEAN) / SPEED_MAX) * 100}%` }} className="price-sticker-band" />
-              <i style={{ left: `${(RISKY / SPEED_MAX) * 100}%`, right: 0 }} className="price-sticker-band price-sticker-hot" />
+              <i style={{ left: `${(glueAt / SPEED_MAX) * 100}%`, width: `${((Math.min(tearAt, SPEED_MAX) - glueAt) / SPEED_MAX) * 100}%` }} className="price-sticker-band" />
+              <i style={{ left: `${(Math.min(tearAt, SPEED_MAX) / SPEED_MAX) * 100}%`, right: 0 }} className="price-sticker-band price-sticker-hot" />
               <b style={{ left: `${Math.min(100, (meter.speed / SPEED_MAX) * 100)}%` }} />
             </span>
             <span className="price-sticker-off">{Math.round(meter.peeled * 100)}% off</span>
@@ -266,7 +284,7 @@ export function Game() {
       </div>
       <div className="below">
         <ol className="steps">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <li key={s} className={done[i] ? "ok" : ""}>
               <b>{done[i] ? "✓" : i + 1}</b>
               {s}
@@ -282,7 +300,7 @@ export function Game() {
       {result && tier && (
         <div className="result-veil" role="dialog" aria-modal="true">
           <div className="result">
-            <div className="result-label">Cover clean</div>
+            <div className="result-label">{result.layers > 1 ? "Two labels" : KINDS[result.kind as Kind].name} · Cover clean</div>
             <div className="serif result-score">{Math.floor(result.clean * 100)}%</div>
             <div className="serif result-tier">{tier.tier}</div>
             <p className="result-line">{tier.line}</p>
