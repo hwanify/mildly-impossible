@@ -237,7 +237,9 @@ export function ClementineGame() {
             <div className="result-label">Pieces of peel</div>
             <div className="serif result-score">{result.pieces}</div>
             <div className="serif result-tier">{tier.tier}</div>
-            <p className="result-line">{tier.line}</p>
+            <p className="result-line">
+              {plural(result.pieces, "piece", "pieces")} of peel, {plural(result.threads, "white thread", "white threads")}. {tier.line}
+            </p>
             <div className="result-stats">
               <div>
                 Time<strong>{fmt(result.time)}</strong>

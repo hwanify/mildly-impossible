@@ -483,7 +483,7 @@ export class Peel {
       this.strain = clamp(tension / lim, 0, 1);
       if (tension > lim) {
         this.snapReason = p.width <= 2 && this.pieces[p.piece].path.length >= 5 ? "neck" : turn < -0.1 ? "turn" : "fast";
-        const extra = 2 + Math.floor(this.rand() * 3);
+        const extra = 1 + Math.floor(this.rand() * 2);
         for (let i = 0; i < extra; i++) this.addThread(p.ax + (this.rand() - 0.5) * 16, p.ay + (this.rand() - 0.5) * 16);
         this.finish(p.piece);
         this.pull = null;
@@ -501,6 +501,12 @@ export class Peel {
         p.sf *= 0.9;
         p.progress = Math.max(0, p.progress - 0.2 * f);
       }
+    }
+    // the last of the peel can also come away with a fresh dig or a crumb
+    if (!this.clean && this.attached === 0) {
+      if (this.pull) this.finish(this.pull.piece);
+      this.pull = null;
+      out.push(this.markClean());
     }
     return out;
   }
