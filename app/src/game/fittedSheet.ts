@@ -263,6 +263,40 @@ export class Sheet {
   }
 
   pick(wx: number, wy: number) {
+    // The cloth you can see under the pointer is the last triangle drawn there: take the
+    // nearest of its points.
+    const { x, y } = this;
+    for (let n = this.order.length - 1; n >= 0; n--) {
+      const t = this.order[n];
+      const a = this.ta[t];
+      const b = this.tb[t];
+      const c = this.tc[t];
+      const s0 = (x[b] - x[a]) * (wy - y[a]) - (y[b] - y[a]) * (wx - x[a]);
+      const s1 = (x[c] - x[b]) * (wy - y[b]) - (y[c] - y[b]) * (wx - x[b]);
+      const s2 = (x[a] - x[c]) * (wy - y[c]) - (y[a] - y[c]) * (wx - x[c]);
+      if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+      // A sheet corner close by wins, if it's on this same piece of cloth (within three
+      // triangles) and not under it.
+      let near = new Set([t]);
+      for (let ring = 0; ring < 3; ring++) {
+        const grown = new Set(near);
+        for (const q of near) for (const r of this.nbr[q] ?? []) grown.add(r);
+        near = grown;
+      }
+      for (const k of this.corners)
+        if (Math.hypot(x[k] - wx, y[k] - wy) < 24 && this.ptTris[k].some((q) => near.has(q) && this.tz[q] >= this.tz[t])) return k;
+      let best = a;
+      let bd = Infinity;
+      for (const k of [a, b, c]) {
+        const d = Math.hypot(x[k] - wx, y[k] - wy);
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      }
+      return best;
+    }
+    // Not on the cloth: the nearest point within reach, higher layers and corners first.
     let best = -1;
     let bestScore = -Infinity;
     for (let k = 0; k < N; k++) {
