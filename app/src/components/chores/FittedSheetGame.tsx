@@ -2,17 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { Sheet, W, H, tierFor, type Judge } from "../../game/fittedSheet";
 
 const STEPS = [
-  "구겨진 시트 펼치기",
-  "모서리 하나를 옆 모서리에 쏙 넣기",
-  "반대쪽 모서리 두 개도 겹치기",
-  "네 모서리를 한 곳에 모으기",
-  "각 잡고 '다 갰다!' 누르기",
+  "Spread the sheet out",
+  "Tuck one corner into its neighbor",
+  "Tuck the other two together",
+  "Bring all four corners together",
+  "Square it up and submit",
 ];
 
 const WELD_LINES: Record<number, string> = {
-  2: "쏙! 모서리가 주머니에 들어갔다",
-  3: "세 개째. 이제 손이 모자랍니다",
-  4: "네 모서리 합체! 사람들이 여기서 제일 많이 포기합니다",
+  2: "Tucked. That is one pocket.",
+  3: "Three corners. You are out of hands.",
+  4: "All four corners. This is where most people give up.",
 };
 
 type Result = Judge & { time: number; shakes: number };
@@ -137,7 +137,7 @@ export function FittedSheetGame() {
 
   const finish = () => {
     const s = sheetRef.current;
-    if (!s) return;
+    if (!s || s.anim) return;
     setResult({ ...s.judge(), time, shakes: shakesRef.current });
     setDone((d) => d.map((v, i) => (i === 4 ? true : v)));
   };
@@ -147,7 +147,7 @@ export function FittedSheetGame() {
     s.shake();
     shakesRef.current += 1;
     if (startRef.current === null) startRef.current = performance.now();
-    say("탈탈탈… 모서리가 전부 빠졌습니다");
+    say("Shaken out. Every corner came loose.");
   };
   const ball = () => {
     const s = sheetRef.current;
@@ -169,19 +169,19 @@ export function FittedSheetGame() {
     <>
       <div className="topbar">
         <a href="/" className="back">
-          ← 보스 목록
+          ← Mildly Impossible
         </a>
-        <span className="clock" aria-label="경과 시간">
+        <span className="clock" aria-label="Elapsed time">
           {fmt(time)}
         </span>
       </div>
-      <h1 className="jua play-title">피티드 시트 개기</h1>
+      <h1 className="serif play-title">Fold a Fitted Sheet</h1>
       <p className="play-lede">
-        방금 건조기에서 꺼낸 고무줄 시트입니다. 끌어서 펼치고, 모서리를 다른 모서리 위에 놓으면 주머니처럼 쏙
-        들어갑니다. 네모 반듯해지면 제출하세요.
+        Fresh out of the dryer. Drag anywhere to unfold it. Drop a corner onto another corner to tuck it in.
+        Submit when it looks like a rectangle.
       </p>
       <div className="stage">
-        <canvas ref={canvasRef} aria-label="피티드 시트. 마우스나 손가락으로 끌어서 개세요." />
+        <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A fitted sheet. Drag with your mouse or finger to fold it." />
         {toast && <div className="toast">{toast}</div>}
       </div>
       <div className="below">
@@ -195,47 +195,47 @@ export function FittedSheetGame() {
         </ol>
         <div className="actions">
           <button className="btn-new" onClick={fresh}>
-            새 시트 꺼내기
+            New sheet
           </button>
           <button className="btn-ball" onClick={ball}>
-            그냥 뭉치기
+            Give up and ball it
           </button>
           <button className="btn-shake" onClick={shake}>
-            탈탈 털기
+            Shake it out
           </button>
-          <button className="btn-done" onClick={finish}>
-            다 갰다!
+          <button className="btn-done" onClick={finish} disabled={!!result}>
+            Done folding
           </button>
         </div>
       </div>
       {result && tier && (
         <div className="result-veil" role="dialog" aria-modal="true">
           <div className="result">
-            <div className="result-label">각 잡힘 지수</div>
-            <div className="jua result-score">{result.score}</div>
-            <div className="jua result-tier">{tier.tier}</div>
+            <div className="result-label">Neatness score</div>
+            <div className="serif result-score">{result.score}</div>
+            <div className="serif result-tier">{tier.tier}</div>
             <p className="result-line">{tier.line}</p>
             <div className="result-stats">
               <div>
-                걸린 시간<strong>{fmt(result.time)}</strong>
+                Time<strong>{fmt(result.time)}</strong>
               </div>
               <div>
-                탈탈 턴 횟수<strong>{result.shakes}번</strong>
+                Shakes<strong>{result.shakes}</strong>
               </div>
               <div>
-                네모 반듯함<strong>{Math.round(result.rect * 100)}%</strong>
+                Squareness<strong>{Math.round(result.rect * 100)}%</strong>
               </div>
               <div>
-                접힌 정도<strong>{Math.round(result.compact * 100)}%</strong>
+                Compactness<strong>{Math.round(result.compact * 100)}%</strong>
               </div>
             </div>
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
-                한 장 더
+                Another sheet
               </button>
               {!result.ball && (
                 <button className="btn-keep" onClick={() => setResult(null)}>
-                  계속 다듬기
+                  Keep tidying
                 </button>
               )}
             </div>

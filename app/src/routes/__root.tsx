@@ -16,8 +16,8 @@ import appMetaJson from "../app-meta.json";
 
 declare const __HF_DESIGN_INSPECTOR__: boolean;
 
-const DEFAULT_TITLE = "일상 보스전";
-const DEFAULT_DESCRIPTION = "매일 지는데 아무도 연습시켜 주지 않는 싸움들.";
+const DEFAULT_TITLE = "Mildly Impossible";
+const DEFAULT_DESCRIPTION = "Small household tasks that are technically possible.";
 
 type AppMeta = {
   og_title?: string | null;
@@ -75,7 +75,7 @@ function buildHead(meta: AppMeta) {
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" as const },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600&family=Jua&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       { rel: "stylesheet", href: siteCss },
@@ -87,11 +87,11 @@ function buildHead(meta: AppMeta) {
 function NotFoundComponent() {
   return (
     <main className="hub">
-      <h1 className="jua hub-title">404</h1>
-      <p className="hub-sub">이 페이지는 이불 커버 안으로 사라졌습니다.</p>
+      <h1 className="serif hub-title">404</h1>
+      <p className="hub-sub">This page got lost inside a duvet cover.</p>
       <p className="hub-foot">
         <Link to="/" className="back">
-          ← 보스 목록으로
+          ← Back to all tasks
         </Link>
       </p>
     </main>
@@ -107,8 +107,8 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 
   return (
     <main className="hub">
-      <h1 className="jua play-title">앗, 시트가 엉켰어요</h1>
-      <p className="hub-sub">페이지를 불러오지 못했습니다.</p>
+      <h1 className="serif play-title">Something got tangled</h1>
+      <p className="hub-sub">This page did not load.</p>
       <div className="result-row">
         <button
           className="btn-keep"
@@ -117,10 +117,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             reset();
           }}
         >
-          다시 시도
+          Try again
         </button>
         <a href="/" className="back">
-          처음으로
+          Home
         </a>
       </div>
     </main>
@@ -137,7 +137,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="ko" style={{ colorScheme: "light" }}>
+    <html lang="en" style={{ colorScheme: "light" }}>
       <head>
         <HeadContent />
       </head>

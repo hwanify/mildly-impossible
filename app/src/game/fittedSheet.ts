@@ -1,21 +1,26 @@
 // Fitted-sheet cloth toy. Pure module: no browser globals at top level (SSR safe).
+// The sheet is a grid of points joined by constraints and rendered as triangles;
+// each triangle remembers which layer it sits on, so folds stack correctly.
 export const W = 1000;
 export const H = 640;
-export const NX = 24;
-export const NY = 16;
-export const S = 24;
+export const NX = 32;
+export const NY = 21;
+export const S = 18;
 const N = NX * NY;
 const QX = NX - 1;
-const QN = (NX - 1) * (NY - 1);
-const EL = 4; // elastic cells from each corner
+const QY = NY - 1;
+const TN = QX * QY * 2;
+const EL = 5; // elastic cells from each corner
 const FRICTION = 0.8;
-const ITER = 14;
+const ITER = 18;
 export const SNAP = 46;
 const GRAB = 40;
-const REST_AREA = S * S;
-const ORIG_AREA = (NX - 1) * S * (NY - 1) * S;
+const TRI_REST = S * S; // a triangle's cross product when lying flat
+const FLIP_T = TRI_REST * 0.12;
+const ORIG_AREA = QX * S * QY * S;
 
 type Con = { a: number; b: number; rest: number; ks: number; kc: number; el: boolean };
+type Edge = [number, number, boolean];
 export type SheetStats = { flipped: number; maxGroup: number; welded: number };
 export type Judge = { score: number; compact: number; rect: number; weld: number; ball: boolean; flat: boolean };
 
@@ -45,8 +50,13 @@ export class Sheet {
   by = new Float32Array(N);
   cons: Con[] = [];
   elKeys = new Set<number>();
-  qz = new Float32Array(QN);
-  qs = new Int8Array(QN);
+  ta = new Int32Array(TN);
+  tb = new Int32Array(TN);
+  tc = new Int32Array(TN);
+  tz = new Float32Array(TN);
+  ts = new Int8Array(TN);
+  ptTris: number[][] = [];
+  triEdges: (Edge[] | undefined)[] = [];
   corners: number[];
   groups: number[][] = [];
   held = -1;
@@ -82,7 +92,40 @@ export class Sheet {
           this.cons.push({ a: idx(i + 1, j), b: idx(i, j + 1), rest: S * Math.SQRT2, ks: 0.6, kc: 0.05, el: false });
         }
       }
-    for (let q = 0; q < QN; q++) this.order.push(q);
+    let t = 0;
+    for (let k = 0; k < N; k++) this.ptTris.push([]);
+    const tri = (a: number, b: number, c: number) => {
+      this.ta[t] = a;
+      this.tb[t] = b;
+      this.tc[t] = c;
+      this.ptTris[a].push(t);
+      this.ptTris[b].push(t);
+      this.ptTris[c].push(t);
+      this.order.push(t);
+      t++;
+    };
+    for (let j = 0; j < QY; j++)
+      for (let i = 0; i < QX; i++) {
+        const a = idx(i, j);
+        const b = a + 1;
+        const c = a + NX + 1;
+        const d = a + NX;
+        if (((i + j) & 1) === 0) {
+          tri(a, b, c);
+          tri(a, c, d);
+        } else {
+          tri(a, b, d);
+          tri(b, c, d);
+        }
+      }
+    const edges: [number, number][] = [];
+    for (let i = 0; i < QX; i++) edges.push([idx(i, 0), idx(i + 1, 0)], [idx(i + 1, QY), idx(i, QY)]);
+    for (let j = 0; j < QY; j++) edges.push([idx(QX, j), idx(QX, j + 1)], [idx(0, j + 1), idx(0, j)]);
+    for (const [p0, p1] of edges) {
+      const owner = this.ptTris[p0].find((tt) => this.ta[tt] === p1 || this.tb[tt] === p1 || this.tc[tt] === p1);
+      if (owner === undefined) continue;
+      (this.triEdges[owner] ??= []).push([p0, p1, this.isEl(p0, p1)]);
+    }
     this.scramble(seed);
   }
 
@@ -90,47 +133,46 @@ export class Sheet {
     return this.elKeys.has(a * N + b) || this.elKeys.has(b * N + a);
   }
 
-  // Fresh out of the dryer: flat sheet folded twice along random lines.
+  // Fresh out of the dryer: start flat, then let a "hand" make a few careless
+  // drags with the same physics the player uses, so the folds look natural.
   scramble(seed: number) {
     const r = rng(seed);
     this.x.set(this.rx);
     this.y.set(this.ry);
-    this.qz.fill(0);
+    this.px.set(this.rx);
+    this.py.set(this.ry);
+    this.tz.fill(0);
     this.groups = [];
     this.frozen = false;
     this.balled = false;
     this.anim = null;
-    for (let f = 1; f <= 2; f++) {
-      const cx = W / 2 + (r() - 0.5) * 160;
-      const cy = H / 2 + (r() - 0.5) * 90;
-      const ang = r() * Math.PI;
-      const flip = r() < 0.5 ? 1 : -1;
-      const nx = Math.cos(ang) * flip;
-      const ny = Math.sin(ang) * flip;
-      const mark = new Uint8Array(N);
-      for (let k = 0; k < N; k++) {
-        const d = (this.x[k] - cx) * nx + (this.y[k] - cy) * ny;
-        if (d > 0) {
-          this.x[k] -= 2 * d * nx;
-          this.y[k] -= 2 * d * ny;
-          mark[k] = 1;
-        }
-      }
-      for (let q = 0; q < QN; q++) {
-        const i = q % QX;
-        const j = (q / QX) | 0;
-        const a = idx(i, j);
-        if (mark[a] && mark[a + 1] && mark[a + NX] && mark[a + NX + 1]) this.qz[q] = f;
-      }
-    }
-    for (let k = 0; k < N; k++) {
-      this.x[k] = Math.max(20, Math.min(W - 20, this.x[k] + (r() - 0.5) * 4));
-      this.y[k] = Math.max(20, Math.min(H - 20, this.y[k] + (r() - 0.5) * 4));
-    }
-    this.px.set(this.x);
-    this.py.set(this.y);
-    this.level = 2;
+    this.held = -1;
+    this.heldSet = new Set();
+    this.level = 0;
     this.updateSigns(true);
+    const edge: number[] = [];
+    for (let i = 0; i < NX; i++) edge.push(idx(i, 0), idx(i, NY - 1));
+    for (let j = 1; j < NY - 1; j++) edge.push(idx(0, j), idx(NX - 1, j));
+    for (let m = 0; m < 3; m++) {
+      const k = r() < 0.55 ? this.corners[(r() * 4) | 0] : edge[(r() * edge.length) | 0];
+      const gx = W / 2 + (r() - 0.5) * 240;
+      const gy = H / 2 + (r() - 0.5) * 150;
+      this.held = k;
+      this.heldSet = new Set([k]);
+      this.level += 1;
+      const x0 = this.x[k];
+      const y0 = this.y[k];
+      for (let t = 1; t <= 48; t++) {
+        const f = Math.min(1, t / 36);
+        this.move(x0 + (gx - x0) * f, y0 + (gy - y0) * f);
+        this.step();
+      }
+      this.held = -1;
+      this.heldSet = new Set();
+      for (let t = 0; t < 6; t++) this.step();
+    }
+    for (let t = 0; t < 24; t++) this.step();
+    this.groups = [];
   }
 
   groupOf(k: number): number[] | null {
@@ -138,39 +180,29 @@ export class Sheet {
     return null;
   }
 
-  private quadCross(q: number) {
-    const i = q % QX;
-    const j = (q / QX) | 0;
-    const a = idx(i, j);
-    const b = a + 1;
-    const c = a + NX + 1;
-    const d = a + NX;
-    return (this.x[c] - this.x[a]) * (this.y[d] - this.y[b]) - (this.y[c] - this.y[a]) * (this.x[d] - this.x[b]);
+  private triCross(t: number) {
+    const a = this.ta[t];
+    const b = this.tb[t];
+    const c = this.tc[t];
+    return (this.x[b] - this.x[a]) * (this.y[c] - this.y[a]) - (this.y[b] - this.y[a]) * (this.x[c] - this.x[a]);
   }
 
   private updateSigns(init = false) {
-    const hs = this.heldSet;
-    for (let q = 0; q < QN; q++) {
-      const s = this.quadCross(q) >= 0 ? 1 : -1;
-      if (!init && s !== this.qs[q] && this.held >= 0) this.qz[q] = this.level;
-      this.qs[q] = s;
-      if (hs.size) {
-        const a = idx(q % QX, (q / QX) | 0);
-        if (hs.has(a) || hs.has(a + 1) || hs.has(a + NX) || hs.has(a + NX + 1)) this.qz[q] = this.level;
-      }
+    for (let t = 0; t < TN; t++) {
+      const cr = this.triCross(t);
+      // Hysteresis: nearly collapsed triangles keep their side, so fold lines don't flicker.
+      const s = init ? (cr >= 0 ? 1 : -1) : cr > FLIP_T ? 1 : cr < -FLIP_T ? -1 : this.ts[t];
+      // A triangle that turns over belongs to the most recent fold, even if it
+      // finishes turning after the hand lets go.
+      if (!init && s !== this.ts[t]) this.tz[t] = this.level;
+      this.ts[t] = s;
     }
+    for (const k of this.heldSet) for (const t of this.ptTris[k]) this.tz[t] = this.level;
   }
 
   private pointZ(k: number) {
-    const i = k % NX;
-    const j = (k / NX) | 0;
     let z = -1;
-    for (let dj = -1; dj <= 0; dj++)
-      for (let di = -1; di <= 0; di++) {
-        const qi = i + di;
-        const qj = j + dj;
-        if (qi >= 0 && qj >= 0 && qi < QX && qj < NY - 1) z = Math.max(z, this.qz[qj * QX + qi]);
-      }
+    for (const t of this.ptTris[k]) z = Math.max(z, this.tz[t]);
     return z;
   }
 
@@ -258,7 +290,7 @@ export class Sheet {
     if (this.frozen) return;
     this.release();
     this.groups = [];
-    this.qz.fill(0);
+    this.tz.fill(0);
     this.level = 0;
     this.anim = { kind: "shake", t: 0, n: 52 };
   }
@@ -274,7 +306,7 @@ export class Sheet {
       this.bx[k] = W / 2 + Math.cos(a) * rad;
       this.by[k] = H / 2 + Math.sin(a) * rad * 0.85;
     }
-    for (let q = 0; q < QN; q++) this.qz[q] = (r() * 8) | 0;
+    for (let t = 0; t < TN; t++) this.tz[t] = (r() * 8) | 0;
     this.anim = { kind: "ball", t: 0, n: 46 };
     this.balled = true;
   }
@@ -385,17 +417,17 @@ export class Sheet {
       if (y[k] < 8) y[k] = 8; else if (y[k] > H - 8) y[k] = H - 8;
     }
     if (this.balled) {
-      for (let q = 0; q < QN; q++) this.qs[q] = this.quadCross(q) >= 0 ? 1 : -1;
+      for (let t = 0; t < TN; t++) this.ts[t] = this.triCross(t) >= 0 ? 1 : -1;
     } else this.updateSigns();
   }
 
   stats(): SheetStats {
     let f = 0;
-    for (let q = 0; q < QN; q++) if (this.qs[q] < 0) f++;
+    for (let t = 0; t < TN; t++) if (this.ts[t] < 0) f++;
     let maxGroup = 1;
     let welded = 0;
     for (const g of this.groups) { maxGroup = Math.max(maxGroup, g.length); welded += g.length; }
-    return { flipped: f / QN, maxGroup, welded };
+    return { flipped: f / TN, maxGroup, welded };
   }
 
   judge(): Judge {
@@ -435,65 +467,54 @@ export class Sheet {
   }
 
   draw(ctx: CanvasRenderingContext2D, hover: number) {
-    const { x, y, qz, qs } = this;
+    const { x, y, tz, ta, tb, tc } = this;
     const order = this.order;
-    order.sort((p, q) => qz[p] - qz[q] || p - q);
-    const quadPath = (q: number, ox: number, oy: number) => {
-      const a = idx(q % QX, (q / QX) | 0);
-      ctx.moveTo(x[a] + ox, y[a] + oy);
-      ctx.lineTo(x[a + 1] + ox, y[a + 1] + oy);
-      ctx.lineTo(x[a + NX + 1] + ox, y[a + NX + 1] + oy);
-      ctx.lineTo(x[a + NX] + ox, y[a + NX] + oy);
+    const ts = this.ts;
+    order.sort((p, q) => tz[p] - tz[q] || ts[q] - ts[p] || p - q);
+    const triPath = (t: number, ox: number, oy: number) => {
+      ctx.moveTo(x[ta[t]] + ox, y[ta[t]] + oy);
+      ctx.lineTo(x[tb[t]] + ox, y[tb[t]] + oy);
+      ctx.lineTo(x[tc[t]] + ox, y[tc[t]] + oy);
       ctx.closePath();
     };
-    ctx.fillStyle = "rgba(28,52,96,0.11)";
+    ctx.fillStyle = "rgba(40,38,30,0.10)";
     ctx.beginPath();
-    for (const q of order) quadPath(q, 6, 9);
+    for (const t of order) triPath(t, 6, 9);
     ctx.fill();
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     let start = 0;
     while (start < order.length) {
-      const z = qz[order[start]];
+      const z = tz[order[start]];
       let end = start;
-      while (end < order.length && qz[order[end]] === z) end++;
+      while (end < order.length && tz[order[end]] === z) end++;
       if (start > 0) {
-        ctx.fillStyle = "rgba(28,52,96,0.13)";
+        ctx.fillStyle = "rgba(40,38,30,0.12)";
         ctx.beginPath();
-        for (let n = start; n < end; n++) quadPath(order[n], 2.5, 4);
+        for (let n = start; n < end; n++) triPath(order[n], 2.5, 4);
         ctx.fill();
       }
       for (let n = start; n < end; n++) {
-        const q = order[n];
-        const i = q % QX;
-        const j = (q / QX) | 0;
-        const ratio = Math.min(1, Math.abs(this.quadCross(q)) / 2 / REST_AREA);
-        const shade = 0.76 + 0.24 * ratio;
-        const pocket = (i < 2 || i >= QX - 2) && (j < 2 || j >= NY - 3);
-        let col: string;
-        if (qs[q] > 0) {
-          const base = (i % 4 === 1 ? 65 : 73) - (pocket ? 7 : 0);
-          col = `hsl(212 82% ${(base * shade).toFixed(1)}%)`;
-        } else {
-          col = `hsl(210 70% ${((pocket ? 82 : 89) * shade).toFixed(1)}%)`;
-        }
+        const t = order[n];
+        // Colour follows how far the triangle has actually turned over, so creases
+        // read as a soft rolled edge instead of hard grid teeth.
+        const cr = this.triCross(t) / TRI_REST;
+        const f = clamp01((cr + 0.6) / 1.2);
+        const turn = f * f * (3 - 2 * f);
+        const shade = 0.8 + 0.2 * Math.min(1, Math.abs(cr) * 1.6);
+        const col = `hsl(213 ${(26 + 4 * turn).toFixed(1)}% ${((85 - 14 * turn) * shade).toFixed(1)}%)`;
         ctx.beginPath();
-        quadPath(q, 0, 0);
+        triPath(t, 0, 0);
         ctx.fillStyle = col;
         ctx.fill();
         ctx.strokeStyle = col;
-        ctx.lineWidth = 0.9;
+        ctx.lineWidth = 0.7;
         ctx.stroke();
-        const a = idx(i, j);
-        const edges: [number, number][] = [];
-        if (j === 0) edges.push([a, a + 1]);
-        if (i === QX - 1) edges.push([a + 1, a + NX + 1]);
-        if (j === NY - 2) edges.push([a + NX + 1, a + NX]);
-        if (i === 0) edges.push([a + NX, a]);
-        for (const [p0, p1] of edges) {
-          const el = this.isEl(p0, p1);
-          ctx.strokeStyle = el ? "#2459A0" : "#3B78C2";
-          ctx.lineWidth = el ? 4.2 : 2.4;
+        const edges = this.triEdges[t];
+        if (!edges) continue;
+        for (const [p0, p1, el] of edges) {
+          ctx.strokeStyle = el ? "#4A5F78" : "#6F86A1";
+          ctx.lineWidth = el ? 3.4 : 1.7;
           ctx.beginPath();
           ctx.moveTo(x[p0], y[p0]);
           ctx.lineTo(x[p1], y[p1]);
@@ -504,10 +525,10 @@ export class Sheet {
             const dx = x[p1] - x[p0];
             const dy = y[p1] - y[p0];
             const d = Math.hypot(dx, dy) || 1;
-            ctx.lineWidth = 1.6;
+            ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(mx - (dy / d) * 4, my + (dx / d) * 4);
-            ctx.lineTo(mx + (dy / d) * 4, my - (dx / d) * 4);
+            ctx.moveTo(mx - (dy / d) * 3.5, my + (dx / d) * 3.5);
+            ctx.lineTo(mx + (dy / d) * 3.5, my - (dx / d) * 3.5);
             ctx.stroke();
           }
         }
@@ -518,41 +539,41 @@ export class Sheet {
       ctx.beginPath();
       ctx.arc(t.x, t.y, SNAP, 0, Math.PI * 2);
       ctx.setLineDash([6, 6]);
-      ctx.strokeStyle = t.hot ? "#FF5A4E" : "rgba(27,31,42,0.35)";
-      ctx.lineWidth = t.hot ? 3 : 2;
+      ctx.strokeStyle = t.hot ? "#1C1C1A" : "rgba(28,28,26,0.28)";
+      ctx.lineWidth = t.hot ? 2 : 1.5;
       ctx.stroke();
       ctx.setLineDash([]);
       if (t.hot) {
-        ctx.fillStyle = "rgba(255,90,78,0.14)";
+        ctx.fillStyle = "rgba(28,28,26,0.06)";
         ctx.fill();
       }
     }
     for (const g of this.groups) {
       ctx.beginPath();
-      ctx.arc(x[g[0]], y[g[0]], 6 + g.length, 0, Math.PI * 2);
-      ctx.fillStyle = "#FF5A4E";
+      ctx.arc(x[g[0]], y[g[0]], 4 + g.length, 0, Math.PI * 2);
+      ctx.fillStyle = "#1C1C1A";
       ctx.fill();
-      ctx.strokeStyle = "#1B1F2A";
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#FBFAF7";
+      ctx.lineWidth = 2;
       ctx.stroke();
     }
     const ring = this.held >= 0 ? this.held : hover;
     if (ring >= 0) {
       ctx.beginPath();
       ctx.arc(x[ring], y[ring], this.held >= 0 ? 13 : 11, 0, Math.PI * 2);
-      ctx.strokeStyle = "#1B1F2A";
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "rgba(28,28,26,0.7)";
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
   }
 }
 
 export function tierFor(j: Judge) {
-  if (j.ball) return { tier: "공 완성", line: "축하합니다. 결국 대부분이 고르는 방법을 고르셨습니다. 옷장 맨 위 칸에 던져 넣으세요." };
-  if (j.flat) return { tier: "아직 펼친 상태", line: "이건 개기 전입니다. 침대에 다시 씌우실 건가요?" };
-  if (j.score >= 88) return { tier: "호텔 하우스키핑급", line: "각이 살아 있습니다. 서랍 속에서도 빛날 겁니다." };
-  if (j.score >= 70) return { tier: "엄마 합격선", line: "\"그래도 이건 좀 낫네\" 소리를 들을 수 있는 수준입니다." };
-  if (j.score >= 50) return { tier: "옷장 속 비밀", line: "문 닫으면 아무도 모릅니다. 당신만 압니다." };
-  if (j.score >= 30) return { tier: "갰다기보단 접었다", line: "모서리들이 아직 서로 낯을 가립니다." };
-  return { tier: "뭉친 것에 가까움", line: "고무줄이 이겼습니다. 오늘은 고무줄의 날입니다." };
+  if (j.ball) return { tier: "Rolled into a ball", line: "The method most people choose, eventually. Top shelf of the closet it is." };
+  if (j.flat) return { tier: "Still a sheet", line: "This is the before photo. Were you planning to put it back on the bed?" };
+  if (j.score >= 88) return { tier: "Hotel standard", line: "Crisp corners. This could live in a linen closet with dignity." };
+  if (j.score >= 70) return { tier: "Parent-approved", line: "Close enough that nobody will refold it behind your back." };
+  if (j.score >= 50) return { tier: "Closet secret", line: "Once the door is shut, only you will know." };
+  if (j.score >= 30) return { tier: "Folded, ish", line: "The corners are still not on speaking terms." };
+  return { tier: "Mostly a lump", line: "The elastic won today. It usually does." };
 }

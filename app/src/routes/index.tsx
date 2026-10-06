@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SheetArt, TapeArt, DuvetArt } from "../components/chores/ChoreArt";
+import { SheetThumb, TapeArt, DuvetArt } from "../components/chores/ChoreArt";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -8,56 +8,50 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <main className="hub">
-      <h1 className="jua hub-title">
-        일상<span>보스전</span>
-      </h1>
-      <p className="hub-sub">
-        매일 지는데 아무도 연습시켜 주지 않는 싸움들.
-        <br />
-        강좌 앱 말고, 직접 져 보세요.
-      </p>
-      <div className="boss-grid">
-        <Link to="/fitted-sheet" className="boss">
-          <div className="boss-art" style={{ background: "var(--butter)" }}>
-            <SheetArt />
+      <header className="hub-head">
+        <h1 className="serif hub-title">
+          Mildly <em>Impossible</em>
+        </h1>
+        <p className="hub-sub">
+          Small household tasks that are technically possible. There are a thousand tutorials for each of them. This is
+          the practice room.
+        </p>
+      </header>
+      <div className="shelf">
+        <Link to="/fitted-sheet" className="task">
+          <div className="task-thumb">
+            <SheetThumb />
           </div>
-          <div className="boss-body">
-            <div className="jua boss-name">피티드 시트 개기</div>
-            <p className="boss-desc">고무줄이 든 침대 시트를 네모 반듯하게. 네 모서리가 동시에 당신을 거부합니다.</p>
-            <div className="boss-hp">
-              <i />
-              도전 가능
+          <div className="task-body">
+            <div className="serif task-name">Fold a Fitted Sheet</div>
+            <p className="task-desc">Four elastic corners, one rectangle. The corners have other plans.</p>
+            <div className="task-meta">
+              <span>Try it</span> →
             </div>
           </div>
         </Link>
-        <div className="boss soon" aria-disabled="true">
-          <div className="boss-art" style={{ background: "var(--mint)" }}>
+        <div className="task soon" aria-disabled="true">
+          <div className="task-thumb">
             <TapeArt />
           </div>
-          <div className="boss-body">
-            <div className="jua boss-name">테이프 끝 찾기</div>
-            <p className="boss-desc">분명 어딘가에 있습니다. 손톱으로 한 바퀴를 다 돌아도요.</p>
-            <div className="boss-hp">
-              <i />
-              준비 중
-            </div>
+          <div className="task-body">
+            <div className="serif task-name">Find the End of the Tape</div>
+            <p className="task-desc">It is definitely there. Your thumbnail has been around twice.</p>
+            <div className="task-meta">Coming soon</div>
           </div>
         </div>
-        <div className="boss soon" aria-disabled="true">
-          <div className="boss-art" style={{ background: "var(--lilac)" }}>
+        <div className="task soon" aria-disabled="true">
+          <div className="task-thumb">
             <DuvetArt />
           </div>
-          <div className="boss-body">
-            <div className="jua boss-name">이불 커버 씌우기</div>
-            <p className="boss-desc">들어가는 건 이불인데 왜 내가 안에 갇혀 있을까요.</p>
-            <div className="boss-hp">
-              <i />
-              준비 중
-            </div>
+          <div className="task-body">
+            <div className="serif task-name">Put On a Duvet Cover</div>
+            <p className="task-desc">Somehow the duvet stays outside and you end up inside.</p>
+            <div className="task-meta">Coming soon</div>
           </div>
         </div>
       </div>
-      <p className="hub-foot">보스는 하나씩 늘어납니다.</p>
+      <p className="hub-foot">New tasks are added occasionally. None of them get easier.</p>
     </main>
   );
 }
