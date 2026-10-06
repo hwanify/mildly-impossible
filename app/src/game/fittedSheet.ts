@@ -23,6 +23,10 @@ const BACK = "#DDE3EA";
 const HEM = "rgba(40,54,74,0.7)";
 const OUTLINE = "#2B3A4F";
 const FLIP_T = TRI_REST * 0.12;
+const SHOW_T = TRI_REST * 0.5;
+const SPECK = 24; // patches of the other side this small (in triangles) are bunching, not folds
+const THIN = 2.2;
+const MOVED = 30; // dragged this far along with the hand: lifted and laid on top // ...and so are patches this thin (triangles per edge of their outline)
 const ORIG_AREA = QX * S * QY * S;
 
 type Con = { a: number; b: number; rest: number; ks: number; kc: number; el: boolean };
@@ -72,6 +76,11 @@ export class Sheet {
   nbr: number[][] = [];
   /** The side each triangle is drawn on (its real side, minus small specks). */
   ds = new Int8Array(TN);
+  /** Where every point was when the current grab started. */
+  gx = new Float32Array(N);
+  gy = new Float32Array(N);
+  /** The side for colouring, with a stricter turn-over test than ts. */
+  vs = new Int8Array(TN);
   corners: number[];
   groups: number[][] = [];
   held = -1;
@@ -234,8 +243,17 @@ export class Sheet {
       // finishes turning after the hand lets go.
       if (!init && s !== this.ts[t]) this.tz[t] = this.level;
       this.ts[t] = s;
+      // For the colour, a squashed triangle is bunched cloth, not a fold: it only counts as
+      // turned over once it has opened out at least halfway the other way.
+      this.vs[t] = init ? s : cr > SHOW_T ? 1 : cr < -SHOW_T ? -1 : this.vs[t];
     }
     for (const k of this.heldSet) for (const t of this.ptTris[k]) this.tz[t] = this.level;
+    // Whatever the hand has dragged along with it goes on top as one piece, not just the bits
+    // that happened to turn over: cloth pulled across cloth lies on it.
+    if (!init && this.held >= 0) {
+      const moved = (k: number) => Math.hypot(this.x[k] - this.gx[k], this.y[k] - this.gy[k]) > MOVED;
+      for (let t = 0; t < TN; t++) if (moved(this.ta[t]) && moved(this.tb[t]) && moved(this.tc[t])) this.tz[t] = this.level;
+    }
   }
 
   private pointZ(k: number) {
@@ -281,6 +299,8 @@ export class Sheet {
     this.held = k;
     this.heldSet = new Set(this.groupOf(k) ?? [k]);
     this.level += 1;
+    this.gx.set(this.x);
+    this.gy.set(this.y);
     this.tx = wx;
     this.ty = wy;
     return true;
@@ -455,7 +475,7 @@ export class Sheet {
       if (y[k] < 8) y[k] = 8; else if (y[k] > H - 8) y[k] = H - 8;
     }
     if (this.balled) {
-      for (let t = 0; t < TN; t++) this.ts[t] = this.triCross(t) >= 0 ? 1 : -1;
+      for (let t = 0; t < TN; t++) this.vs[t] = this.ts[t] = this.triCross(t) >= 0 ? 1 : -1;
     } else this.updateSigns();
   }
 
@@ -631,27 +651,47 @@ export class Sheet {
     return found;
   }
 
-  // A patch of up to three triangles turned over among cloth that isn't is a crumple, not a
-  // fold: draw it on its neighbours' side so it doesn't show up as a speck of the other colour.
+  // The side each triangle is drawn on. Starts from the strict colour side (vs), then patches
+  // of the other side that are small, or long and thin, take their surroundings' side: pushed
+  // together, a flat cloth can't bulge up, so it buckles into a flat zigzag whose middle strip
+  // turns over. That's bunching, not a fold. A real fold turns over a chunky piece. Last, a
+  // triangle outvoted by two of its three neighbours joins them, which smooths the jagged grid
+  // edge between the sides.
   private despeckle() {
-    const { ts, ds } = this;
-    ds.set(ts);
-    const seen = new Uint8Array(TN);
-    const comp: number[] = [];
-    for (let t = 0; t < TN; t++) {
-      if (seen[t]) continue;
-      comp.length = 0;
-      comp.push(t);
-      seen[t] = 1;
-      for (let i = 0; i < comp.length; i++)
-        for (const o of this.nbr[comp[i]] ?? [])
-          if (!seen[o] && ts[o] === ts[t]) {
-            seen[o] = 1;
-            comp.push(o);
+    const { vs, ds } = this;
+    ds.set(vs);
+    for (let pass = 0; pass < 2; pass++) {
+      const src = new Int8Array(ds);
+      const seen = new Uint8Array(TN);
+      const comp: number[] = [];
+      for (let t = 0; t < TN; t++) {
+        if (seen[t]) continue;
+        comp.length = 0;
+        comp.push(t);
+        seen[t] = 1;
+        let rim = 0; // edges against the other side
+        for (let i = 0; i < comp.length; i++)
+          for (const o of this.nbr[comp[i]] ?? []) {
+            if (src[o] !== src[t]) rim++;
+            else if (!seen[o]) {
+              seen[o] = 1;
+              comp.push(o);
+            }
           }
-      if (comp.length <= 3) for (const k of comp) ds[k] = -ts[t];
+        // about as wide (in triangles) as the patch is, on average
+        const thin = rim > 0 && comp.length / rim < THIN;
+        if (rim > 0 && (comp.length < SPECK || thin)) for (const q of comp) ds[q] = -src[t];
+      }
+    }
+    const tmp = new Int8Array(ds);
+    for (let t = 0; t < TN; t++) {
+      const nb = this.nbr[t] ?? [];
+      let other = 0;
+      for (const o of nb) if (tmp[o] !== tmp[t]) other++;
+      if (other >= 2) ds[t] = -tmp[t];
     }
   }
+
 
   draw(ctx: CanvasRenderingContext2D, hover: number) {
     this.drawCloth(ctx);

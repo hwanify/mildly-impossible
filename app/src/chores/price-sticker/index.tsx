@@ -1,6 +1,7 @@
 import type { Chore } from "../types";
 import { Game } from "./Game";
 import { Thumb } from "./Thumb";
+import { PriceStickerTableItem } from "./TableItem";
 
 export const chore: Chore = {
   slug: "price-sticker",
@@ -10,5 +11,6 @@ export const chore: Chore = {
   added: "2026-10-06",
   status: "live",
   Thumb,
+  TableItem: PriceStickerTableItem,
   Game,
 };

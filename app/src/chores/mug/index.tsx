@@ -1,6 +1,7 @@
 import type { Chore } from "../types";
 import { MugGame } from "../../components/chores/MugGame";
 import { MugThumb } from "../../components/chores/ChoreArt";
+import { MugTableItem } from "./TableItem";
 
 export const chore: Chore = {
   slug: "mug",
@@ -10,5 +11,6 @@ export const chore: Chore = {
   added: "2026-10-05",
   status: "live",
   Thumb: MugThumb,
+  TableItem: MugTableItem,
   Game: MugGame,
 };

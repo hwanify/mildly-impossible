@@ -1,11 +1,10 @@
 # Mildly Impossible
-Design read: global audience, adults who lost to a chore; dry deadpan copy on a goofy, hand-made page (병맛: a straight face on a scribbled page).
-Concept spine: "the practice room" for household tasks that only ever get tutorials, kept in someone's school notebook.
-Delivery tier: editorial shell, toy-first games.
-Look: marker doodle. Lined notebook paper with a red margin, thick marker outlines, wobbly hand-cut borders (uneven border-radius), hard offset shadows, cards and buttons a degree or two off straight, a highlighter swipe under key words.
-Palette: paper #FFFDF6, ink #222, muted #5E5A52, red #CC3349 (accent, "New!!", primary buttons, tiers), crayon fills yellow #FFE45C, pink #FFB3C1, mint #A8E6CF, sky #CDE3FF (cards and stat chips cycle through them). Notebook rules rgba(80,130,200,.2), margin rgba(224,71,91,.4).
-Type: Permanent Marker (titles, buttons, big numbers; the `.serif` class) + Patrick Hand (everything else, 18-24px so it stays readable). Game canvases still draw with Instrument Serif and Inter Tight until each game's art is redone.
-Motion: small and physical only. Toasts stick on like a sticky note, the result card lands with a little bounce, cards straighten and lift on hover and press in on click. Nothing loops. Reduced motion turns it all off.
-Copy: stays deadpan. The page is the joke; the words keep a straight face ("It's fine. It's FINE.", "Still in the dryer. Coming soon-ish.").
-Section plan: hub = scribbled title with an aside, highlighter swipe, one-line sub, crayon card grid, footer note. Game = top bar (back link, clock on a yellow tag), marker title, framed canvas stage with a hard shadow, checklist (ticked items get crossed out), actions, result card.
-CTA inventory: primary = red marker button (btn-done / btn-again), secondary = white marker button (btn-shake), text links with a wavy underline (btn-keep, btn-ball, btn-new), task cards (straighten and lift).
+Design read: global audience, adults who lost to a chore; dry deadpan copy. The site is made of the same stuff as the games, as if one person put it together on their kitchen table.
+Concept spine: "the practice room" for household tasks that only ever get tutorials.
+Look: plain and physical, never decorated. Flat drawings in the games' own colours, paper slips with a strip of masking tape, a blue ballpoint for anything handwritten. No frames, no hard shadows, no rotated cards for the sake of it, no "playful" fonts.
+Hub: a table seen from above. Each task is the thing itself lying on it (a mug, a pizza, a book with a price sticker), with a masking-tape label in handwriting. Tasks not out yet are an empty dashed spot: "goes here. later." The site's name is on an index card.
+Game page: the game sits straight on the page, same background, no frame. One top line (back link, title, clock). The how-to is plain text; the steps are a taped "to do" slip ticked off in ballpoint; the main action is one dark button and everything else is an underlined link. Toasts are small paper slips in handwriting.
+Result: a till receipt. Header, the line items, the big number, the verdict in capitals, a barcode, "THANK YOU. PLEASE TRY AGAIN." The order is set in `site.css`, so every game's result reads the same without changing its markup.
+Palette: page #F4F1EA, table #E9E2D5, slip #FFFEFA, ink #1C1C1A, muted #6B6A65, ballpoint #2D4C9A, masking tape rgba(232,220,186,.92), tomato #B4513A (the "New" tag), receipt paper #FBFAF6. Everything else comes from the games' drawings.
+Type: Libre Caslon Text (titles, `.serif`), Work Sans (text), Reenie Beanie (handwriting: labels, slips, toasts), Courier Prime (receipts). Game canvases still draw with Instrument Serif and Inter Tight.
+Motion: small and physical. Things lift a little on hover, toasts stick on, the receipt slides out. Reduced motion turns it off.

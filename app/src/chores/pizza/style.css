@@ -1,4 +1,4 @@
 .pizza-stage{background:linear-gradient(#F7F4EE,#F1EDE5)}
 .pizza-stage canvas{cursor:crosshair}
 .pizza-result{max-height:calc(100dvh - 32px);overflow:auto}
-.pizza-plate{display:block;width:min(240px,62%,24dvh);aspect-ratio:1;margin:12px auto 0}
+.pizza-plate{display:block;width:min(220px,60%,20dvh);aspect-ratio:1;margin:12px auto 0}
