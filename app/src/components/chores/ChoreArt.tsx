@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { Sheet, W, H } from "../../game/fittedSheet";
-import { TapeRoll, W as TW } from "../../game/tapeRoll";
 
 const STROKE = { fill: "none", stroke: "#8A877F", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -23,23 +22,9 @@ export function SheetThumb() {
   return <canvas ref={ref} aria-hidden="true" />;
 }
 
-// A still of the tape roll, drawn by the game renderer itself.
+// A still frame of the 3D roll, rendered once and saved as an image.
 export function TapeThumb() {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const r = canvas.getBoundingClientRect();
-    canvas.width = Math.round(r.width * dpr);
-    canvas.height = Math.round(r.height * dpr);
-    const roll = new TapeRoll(4242);
-    const sc = canvas.width / TW;
-    ctx.setTransform(sc * 1.05, 0, 0, sc * 1.05, sc * 30, -sc * 28);
-    roll.draw(ctx);
-  }, []);
-  return <canvas ref={ref} aria-hidden="true" />;
+  return <img src="/assets/tape-thumb.jpg" alt="" loading="lazy" />;
 }
 
 export function DuvetArt() {
