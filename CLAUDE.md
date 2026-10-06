@@ -45,11 +45,11 @@ Each session builds exactly one chore, on its own branch, touching only its own 
 3. Do not edit shared files: `routes/`, `chores/registry.ts`, `chores/types.ts`, `site.css`, `__root.tsx`, `app-meta.json`, `public/assets/og.png`, other chores' folders. If a shared change is really needed, make it a separate small PR so it does not ride along with a game.
 4. Before opening the PR, in `app/`: `bun run build` (regenerates `src/routeTree.gen.ts`), then `bun run typecheck`. Both must pass. Check it in the browser with `bun run dev`, or `bun run preview` for the production build.
 5. Open a PR to `main`. Before merging, merge the latest `main` into the branch and re-run build + typecheck. Once they pass, merge the PR yourself (squash) without asking the user for confirmation.
-6. Do not deploy from a game session. Deploys happen from one session, after merges (below).
+6. Right after the merge, deploy it yourself (Shipping, below) without asking. A chore is done when it is live, not when it is merged.
 
 ## Shipping (Higgsfield)
 
-Only one session deploys, and only from merged `main`, so two deploys never race on Higgsfield's checkout. Refresh `app/public/assets/og.png` (a screenshot of the hub) in that session when the hub has changed.
+Every session deploys right after its PR is merged, always from merged `main` (never from a branch). Each deploy pulls the latest `main` first, so a later deploy always includes every earlier merge. If `website_repo_access` push is rejected (another session pushed first), pull `main` again and retry. After a new chore goes live the hub has changed: refresh `app/public/assets/og.png` (a 1200x630 screenshot of the top of the hub) in a small follow-up PR, merge it, and deploy again.
 
 The live site is hosted by Higgsfield (website_id `ccd8efc1-8cac-46a0-8f07-44bdd8c0505c`). This GitHub repo is the working copy; Higgsfield keeps its own copy and only deploys from that one. With the Higgsfield MCP server connected:
 
