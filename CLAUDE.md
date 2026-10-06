@@ -43,7 +43,7 @@ Each session builds exactly one chore, on its own branch, touching only its own 
    - `style.css` (only if needed): import as `import stylesheet from "./style.css?url"` and set `stylesheet` in `chore`. Prefix every class with the slug.
    - To build a chore that is listed as "soon" (e.g. `duvet-cover`), take over its existing folder and switch it to `"live"`.
 3. Do not edit shared files: `routes/`, `chores/registry.ts`, `chores/types.ts`, `site.css`, `__root.tsx`, `app-meta.json`, `public/assets/og.png`, other chores' folders. If a shared change is really needed, make it a separate small PR so it does not ride along with a game.
-4. Before opening the PR, in `app/`: `bun run build` (regenerates `src/routeTree.gen.ts`), then `bun run typecheck`. Both must pass. `bun run preview` serves the production build for a manual check; `bun run dev` currently fails at SSR (`module is not defined` from react) even on `main`, so use preview.
+4. Before opening the PR, in `app/`: `bun run build` (regenerates `src/routeTree.gen.ts`), then `bun run typecheck`. Both must pass. Check it in the browser with `bun run dev`, or `bun run preview` for the production build.
 5. Open a PR to `main`. Before merging, merge the latest `main` into the branch and re-run build + typecheck.
 6. Do not deploy from a game session. Deploys happen from one session, after merges (below).
 
