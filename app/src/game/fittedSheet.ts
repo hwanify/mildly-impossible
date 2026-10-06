@@ -18,16 +18,16 @@ const GRAB = 40;
 const TRI_REST = S * S; // a triangle's cross product when lying flat
 // The two sides of the cloth: printed denim on the right side, plain and pale on the wrong side.
 const FRONT = "#6E86A4";
-const STRIPE = "rgba(255,255,255,0.28)";
+const STRIPE = "rgba(255,255,255,0.2)";
 const BACK = "#DDE3EA";
-const CREASE = "rgba(28,40,58,0.55)";
-const HEM = "#3E5069";
-const HEM_EL = "#2F3F55";
+const HEM = "rgba(40,54,74,0.7)";
+const OUTLINE = "#2B3A4F";
 const FLIP_T = TRI_REST * 0.12;
 const ORIG_AREA = QX * S * QY * S;
 
 type Con = { a: number; b: number; rest: number; ks: number; kc: number; el: boolean };
 type Edge = [number, number, boolean];
+type Chain = { c: number[]; pts: number[][]; votes: number };
 export type SheetStats = { flipped: number; maxGroup: number; welded: number };
 export type Judge = { score: number; compact: number; rect: number; weld: number; ball: boolean; flat: boolean };
 
@@ -70,7 +70,7 @@ export class Sheet {
   stripes: [number, number, number, number][] = [];
   /** Triangles sharing an edge with each triangle. */
   nbr: number[][] = [];
-  /** The side each triangle is drawn on (its real side, minus one-triangle specks). */
+  /** The side each triangle is drawn on (its real side, minus small specks). */
   ds = new Int8Array(TN);
   corners: number[];
   groups: number[][] = [];
@@ -505,10 +505,40 @@ export class Sheet {
   }
 
   // A fold runs across the grid, so the edges where the cloth turns over make a staircase.
-  // Join them into chains, smooth the chains, and draw each as a rolled edge: a soft band in
-  // the colour of the side on top, with a thin line along it.
-  private drawCreases(ctx: CanvasRenderingContext2D, z: number) {
+  // Join them into chains, smooth the chains, and fill the notches up to the smoothed line in
+  // the colour of the side on top. No line: the colours and the layer shadows show the fold.
+  private smoothCreases(ctx: CanvasRenderingContext2D, chains: Chain[]) {
+    const { x, y } = this;
+    for (const { c, pts, votes } of chains) {
+      // fill the notches between the jagged edge and its smoothed line, in the colour on top
+      ctx.beginPath();
+      ctx.moveTo(x[c[0]], y[c[0]]);
+      for (let i = 1; i < c.length; i++) ctx.lineTo(x[c[i]], y[c[i]]);
+      for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = votes > 0 ? FRONT : BACK;
+      ctx.fill();
+    }
+  }
+
+  // Every crease edge, grouped by the layer it belongs to (the upper of its two triangles).
+  private creaseEdges() {
+    const { ds, tz } = this;
+    const byZ = new Map<number, number[]>();
+    this.inner.forEach(([, , t0, t1], e) => {
+      if (ds[t0] === ds[t1]) return;
+      const z = Math.max(tz[t0], tz[t1]);
+      const l = byZ.get(z);
+      if (l) l.push(e);
+      else byZ.set(z, [e]);
+    });
+    return byZ;
+  }
+
+  // The creases in one layer, as smoothed chains of points.
+  private creaseChains(edges: number[]) {
     const { x, y, tz } = this;
+    const found: Chain[] = [];
     const ts = this.ds;
     const next = new Map<number, number[]>();
     const top = new Map<number, number>(); // per edge key: the side showing on top
@@ -517,14 +547,14 @@ export class Sheet {
       if (l) l.push(b);
       else next.set(a, [b]);
     };
-    for (const [p0, p1, t0, t1] of this.inner) {
-      if (ts[t0] === ts[t1] || Math.max(tz[t0], tz[t1]) !== z) continue;
+    for (const e of edges) {
+      const [p0, p1, t0, t1] = this.inner[e];
       link(p0, p1);
       link(p1, p0);
       const upper = tz[t0] === tz[t1] ? -1 : tz[t0] > tz[t1] ? ts[t0] : ts[t1];
       top.set(Math.min(p0, p1) * N + Math.max(p0, p1), upper);
     }
-    if (!next.size) return;
+    if (!next.size) return found;
     // snip the one-edge spurs that stick out at the corners of the staircase
     const unlink = (a: number, b: number) => next.set(a, (next.get(a) ?? []).filter((v) => v !== b));
     for (let pass = 0; pass < 2; pass++)
@@ -589,39 +619,50 @@ export class Sheet {
         pts = out;
       }
       if (closed) {
-        // a thin pocket of the other side, not worth a rolled edge
+        // a thin pocket of the other side, not worth smoothing
         let area = 0;
         for (let i = 0; i < pts.length - 1; i++) area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1];
         if (Math.abs(area) / 2 < 1600) continue;
       }
       let votes = 0;
       for (let i = 0; i < c.length - 1; i++) votes += top.get(key(c[i], c[i + 1])) ?? -1;
-      const path = () => {
-        ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      };
-      path();
-      ctx.strokeStyle = votes > 0 ? FRONT : BACK;
-      ctx.lineWidth = 11;
-      ctx.stroke();
-      path();
-      ctx.strokeStyle = CREASE;
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
+      found.push({ c, pts, votes });
+    }
+    return found;
+  }
+
+  // A patch of up to three triangles turned over among cloth that isn't is a crumple, not a
+  // fold: draw it on its neighbours' side so it doesn't show up as a speck of the other colour.
+  private despeckle() {
+    const { ts, ds } = this;
+    ds.set(ts);
+    const seen = new Uint8Array(TN);
+    const comp: number[] = [];
+    for (let t = 0; t < TN; t++) {
+      if (seen[t]) continue;
+      comp.length = 0;
+      comp.push(t);
+      seen[t] = 1;
+      for (let i = 0; i < comp.length; i++)
+        for (const o of this.nbr[comp[i]] ?? [])
+          if (!seen[o] && ts[o] === ts[t]) {
+            seen[o] = 1;
+            comp.push(o);
+          }
+      if (comp.length <= 3) for (const k of comp) ds[k] = -ts[t];
     }
   }
 
   draw(ctx: CanvasRenderingContext2D, hover: number) {
+    this.drawCloth(ctx);
+    this.drawMarks(ctx, hover);
+  }
+
+  private drawCloth(ctx: CanvasRenderingContext2D) {
     const { x, y, tz, ta, tb, tc } = this;
     const order = this.order;
-    // A single triangle turned over among neighbours that are not is a crumple, not a fold:
-    // draw it on its neighbours' side so it doesn't show up as a speck of the other colour.
+    this.despeckle();
     const ts = this.ds;
-    for (let t = 0; t < TN; t++) {
-      const nb = this.nbr[t] ?? [];
-      ts[t] = nb.length > 0 && nb.every((o) => this.ts[o] !== this.ts[t]) ? this.ts[nb[0]] : this.ts[t];
-    }
     order.sort((p, q) => tz[p] - tz[q] || ts[q] - ts[p] || p - q);
     const triPath = (t: number, ox: number, oy: number) => {
       ctx.moveTo(x[ta[t]] + ox, y[ta[t]] + oy);
@@ -629,26 +670,70 @@ export class Sheet {
       ctx.lineTo(x[tc[t]] + ox, y[tc[t]] + oy);
       ctx.closePath();
     };
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    // Every triangle, wound the same way, as one shape (so they merge with no seams).
+    const wound = (t: number) => {
+      const a = ta[t];
+      const b = this.triCross(t) >= 0 ? tb[t] : tc[t];
+      const c = b === tb[t] ? tc[t] : tb[t];
+      ctx.moveTo(x[a], y[a]);
+      ctx.lineTo(x[b], y[b]);
+      ctx.lineTo(x[c], y[c]);
+      ctx.closePath();
+    };
+    const whole = () => {
+      ctx.beginPath();
+      for (const t of order) wound(t);
+    };
+    // The creases of each layer, worked out once per frame.
+    const creases = new Map<number, Chain[]>();
+    for (const [z, edges] of this.creaseEdges()) creases.set(z, this.creaseChains(edges));
+    const chains = [...creases.values()].flat();
+    // A soft band along every crease. Inside the pile the cloth covers it; on the outside it
+    // rounds off the staircase the grid leaves where the cloth folds over.
+    const bands = () => {
+      ctx.beginPath();
+      for (const { pts } of chains) {
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      }
+    };
+    // its shadow on the mattress
     ctx.fillStyle = "rgba(40,38,30,0.10)";
     ctx.beginPath();
     for (const t of order) triPath(t, 6, 9);
     ctx.fill();
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
+    // One outline around the whole pile: stroke its edges thick and dark, then cover that with
+    // a single pale fill of all of it, so only the outside half of the stroke is left.
+    // (The outside can only be the hem or somewhere near a fold, so only those get stroked.)
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 3.6;
+    ctx.beginPath();
+    for (let t = 0; t < TN; t++) for (const [p0, p1] of this.triEdges[t] ?? []) {
+      ctx.moveTo(x[p0], y[p0]);
+      ctx.lineTo(x[p1], y[p1]);
+    }
+    for (const [p0, p1, t0, t1] of this.inner) {
+      if (this.ts[t0] === this.ts[t1]) continue;
+      ctx.moveTo(x[p0], y[p0]);
+      ctx.lineTo(x[p1], y[p1]);
+    }
+    ctx.stroke();
+    ctx.lineWidth = 9 + 3.6;
+    bands();
+    ctx.stroke();
+    ctx.fillStyle = BACK;
+    whole();
+    ctx.fill();
+    ctx.strokeStyle = BACK;
+    ctx.lineWidth = 9;
+    bands();
+    ctx.stroke();
     // Each side as one shape: every triangle wound the same way, so they merge with no seams.
     const sidePath = (from: number, to: number, side: number) => {
       ctx.beginPath();
-      for (let n = from; n < to; n++) {
-        const t = order[n];
-        if (ts[t] !== side) continue;
-        const a = ta[t];
-        const b = this.triCross(t) >= 0 ? tb[t] : tc[t];
-        const c = b === tb[t] ? tc[t] : tb[t];
-        ctx.moveTo(x[a], y[a]);
-        ctx.lineTo(x[b], y[b]);
-        ctx.lineTo(x[c], y[c]);
-        ctx.closePath();
-      }
+      for (let n = from; n < to; n++) if (ts[order[n]] === side) wound(order[n]);
     };
     let start = 0;
     while (start < order.length) {
@@ -680,11 +765,12 @@ export class Sheet {
       ctx.fillStyle = BACK;
       ctx.fill();
       // creases, where the cloth turns over; drawn with the upper of the two layers
-      this.drawCreases(ctx, z);
-      // the hem goes on last, so nothing in this layer paints over it
+      this.smoothCreases(ctx, creases.get(z) ?? []);
+      // the hem goes on last, so nothing in this layer paints over it; thin, because the
+      // outline around the whole pile does the heavy lifting (elastic is a bit thicker)
       for (const el of [false, true]) {
-        ctx.strokeStyle = el ? HEM_EL : HEM;
-        ctx.lineWidth = el ? 3.4 : 2;
+        ctx.strokeStyle = HEM;
+        ctx.lineWidth = el ? 2.6 : 1.3;
         ctx.beginPath();
         for (let n = start; n < end; n++) {
           const edges = this.triEdges[order[n]];
@@ -693,21 +779,17 @@ export class Sheet {
             if (e !== el) continue;
             ctx.moveTo(x[p0], y[p0]);
             ctx.lineTo(x[p1], y[p1]);
-            if (!el) continue;
-            // gathered elastic
-            const mx = (x[p0] + x[p1]) / 2;
-            const my = (y[p0] + y[p1]) / 2;
-            const dx = x[p1] - x[p0];
-            const dy = y[p1] - y[p0];
-            const d = Math.hypot(dx, dy) || 1;
-            ctx.moveTo(mx - (dy / d) * 3.5, my + (dx / d) * 3.5);
-            ctx.lineTo(mx + (dy / d) * 3.5, my - (dx / d) * 3.5);
           }
         }
         ctx.stroke();
       }
       start = end;
     }
+  }
+
+  // Corner targets, tucked corners and the hand, on top of everything.
+  private drawMarks(ctx: CanvasRenderingContext2D, hover: number) {
+    const { x, y } = this;
     for (const t of this.snapTargets()) {
       ctx.beginPath();
       ctx.arc(t.x, t.y, SNAP, 0, Math.PI * 2);
