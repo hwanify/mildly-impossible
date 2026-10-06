@@ -18,7 +18,7 @@ const TS = 3; // texture resolution per local unit
 const STUCK = 1;
 const FLAP = 2;
 const GONE = 3;
-const LOOSE = 4; // lifted once, laid back down: no glue left under it
+const PARKED = 4; // part of a flap you let go of: it stays folded back where you left it
 const GLUE = 1;
 const FUZZ = 2;
 const LINT = 3; // glue rubbed into little grey balls
@@ -71,6 +71,7 @@ type Shape = { round: boolean; x: number; y: number; w: number; h: number };
 type Badge = { x: number; y: number; r: number; text: string; sub: string; color: string };
 type Blob = { x: number; y: number; r: number; s: number };
 type Tex = { c: CanvasImageSource; g: CanvasRenderingContext2D };
+type Fold = { c: V; p: V; n0: V };
 type Glyph = { ch: string; x0: number; x1: number; y0: number; y1: number };
 type Layer = {
   kind: Kind;
@@ -190,6 +191,8 @@ export class Sticker {
   weak: Uint8Array;
   film: Uint8Array; // the strongest glue: it always stays on the book
   fuzzOf: Uint8Array; // which layer a bit of paper fuzz came from (its print shows through)
+  own: Uint8Array; // for parked cells: which parked flap (1-based)
+  parked: (Fold | null)[] = [];
   total = 0;
   layerTotal = 0;
   stuck = 0;
@@ -273,6 +276,7 @@ export class Sticker {
     this.weak = new Uint8Array(n);
     this.film = new Uint8Array(n);
     this.fuzzOf = new Uint8Array(n);
+    this.own = new Uint8Array(n);
     this.front_ = new Uint8Array(n);
     this.fibres = new Float32Array(n * 2).map(() => rand() * Math.PI);
 
@@ -439,7 +443,7 @@ export class Sticker {
               if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
               const k = j * this.nx + i;
               tot++;
-              if (this.cell[k] === STUCK || this.cell[k] === LOOSE || (this.res[k] === FUZZ && this.fuzzOf[k] === li)) fz++;
+              if (this.cell[k] === STUCK || (this.res[k] === FUZZ && this.fuzzOf[k] === li)) fz++;
             }
           return tot && fz / tot > 0.45 ? g.ch : "·";
         })
@@ -512,6 +516,8 @@ export class Sticker {
       if (L.cuts.some((s) => segDist(m.x, m.y, s) < 2.3)) this.weak[k] = 1;
     }
     this.layerTotal = this.stuck;
+    this.pieces++;
+    this.parked = [];
     // the top few percent of glue never lets go of the cover
     const gs: number[] = [];
     for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === STUCK) gs.push(this.glue[k]);
@@ -534,15 +540,12 @@ export class Sticker {
     this.n0 = n0;
     this.p = { x: c.x + n0.x * reach, y: c.y + n0.y * reach };
     for (let k = 0; k < this.cell.length; k++) {
-      const was = this.cell[k];
-      if (was !== STUCK && was !== LOOSE) continue;
+      if (this.cell[k] !== STUCK) continue;
       const m = this.center(k);
       if ((m.x - c.x) * n0.x + (m.y - c.y) * n0.y < reach / 2 && Math.hypot(m.x - c.x, m.y - c.y) < reach) {
         this.cell[k] = FLAP;
-        if (was === STUCK) {
-          this.res[k] = 0;
-          this.stuck--;
-        }
+        this.res[k] = 0;
+        this.stuck--;
       }
     }
     this.wideSaid = false;
@@ -574,14 +577,7 @@ export class Sticker {
       const j = (k - i) / nx;
       const nb = [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, j > 0 ? k - nx : -1, j < this.ny - 1 ? k + nx : -1];
       for (const q of nb) {
-        if (q < 0) continue;
-        if (this.cell[q] === LOOSE) {
-          // already loosened: it just comes along
-          this.cell[q] = FLAP;
-          queue.push(q);
-          continue;
-        }
-        if (this.cell[q] !== STUCK || !inside(q)) continue;
+        if (q < 0 || this.cell[q] !== STUCK || !inside(q)) continue;
         this.cell[q] = FLAP;
         got.push(q);
         queue.push(q);
@@ -639,9 +635,9 @@ export class Sticker {
     return n;
   }
 
-  private fold(): { d: V; r: number } {
-    const dx = this.p.x - this.c.x;
-    const dy = this.p.y - this.c.y;
+  private fold(f: { c: V; p: V } = this): { d: V; r: number } {
+    const dx = f.p.x - f.c.x;
+    const dy = f.p.y - f.c.y;
     const r = Math.max(1e-3, Math.hypot(dx, dy));
     return { d: { x: dx / r, y: dy / r }, r };
   }
@@ -665,14 +661,74 @@ export class Sticker {
   }
 
   private hitFlap(q: V) {
-    if (!this.hasFlap) return false;
-    if (Math.hypot(q.x - this.p.x, q.y - this.p.y) < 26) return true;
-    const { d, r } = this.fold();
-    const s = (q.x - this.c.x) * d.x + (q.y - this.c.y) * d.y - r / 2;
+    return this.hasFlap && this.hitFold(q, this, (k) => this.cell[k] === FLAP);
+  }
+
+  private hitFold(q: V, f: Fold, mine: (k: number) => boolean) {
+    if (Math.hypot(q.x - f.p.x, q.y - f.p.y) < 26) return true;
+    const { d, r } = this.fold(f);
+    const s = (q.x - f.c.x) * d.x + (q.y - f.c.y) * d.y - r / 2;
     // beyond the crease you see either a slack bit lying in place or a folded bit, mirrored
     if (s <= 0) return false;
     const m = { x: q.x - 2 * s * d.x, y: q.y - 2 * s * d.y };
-    return this.at(Math.floor(q.x / CELL), Math.floor(q.y / CELL)) === FLAP || this.at(Math.floor(m.x / CELL), Math.floor(m.y / CELL)) === FLAP;
+    const cellAt = (v: V) => {
+      const i = Math.floor(v.x / CELL);
+      const j = Math.floor(v.y / CELL);
+      return i >= 0 && j >= 0 && i < this.nx && j < this.ny && mine(j * this.nx + i);
+    };
+    return cellAt(q) || cellAt(m);
+  }
+
+  /** The parked flap under the pointer (1-based id), or 0. */
+  private parkedAt(q: V) {
+    for (let i = this.parked.length - 1; i >= 0; i--) {
+      const f = this.parked[i];
+      if (f && this.hitFold(q, f, (k) => this.cell[k] === PARKED && this.own[k] === i + 1)) return i + 1;
+    }
+    return 0;
+  }
+
+  /** Let go of the flap you had: it stays folded back as it is. */
+  private park() {
+    if (!this.hasFlap) return;
+    let id = this.parked.indexOf(null) + 1;
+    if (!id) id = this.parked.push(null);
+    this.parked[id - 1] = { c: { ...this.c }, p: { ...this.p }, n0: { ...this.n0 } };
+    for (let k = 0; k < this.cell.length; k++)
+      if (this.cell[k] === FLAP) {
+        this.cell[k] = PARKED;
+        this.own[k] = id;
+      }
+    this.front_.fill(0);
+    this.front = 0;
+    this.state = "bare";
+  }
+
+  /** Pick a parked flap back up, exactly as it was left. */
+  private unpark(id: number) {
+    const f = this.parked[id - 1];
+    if (!f) return;
+    for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === PARKED && this.own[k] === id) this.cell[k] = FLAP;
+    this.parked[id - 1] = null;
+    this.c = f.c;
+    this.p = f.p;
+    this.n0 = f.n0;
+    this.state = "loose";
+    this.measureFront();
+    this.wideSaid = false;
+    this.strainSaid = false;
+  }
+
+  // Stuck cells right next to a set of lifted cells: the peel line.
+  private frontOf(mine: (k: number) => boolean) {
+    const out = new Uint8Array(this.cell.length);
+    for (let j = 0; j < this.ny; j++)
+      for (let i = 0; i < this.nx; i++) {
+        const k = j * this.nx + i;
+        if (this.cell[k] !== STUCK) continue;
+        if ((i > 0 && mine(k - 1)) || (i < this.nx - 1 && mine(k + 1)) || (j > 0 && mine(k - this.nx)) || (j < this.ny - 1 && mine(k + this.nx))) out[k] = 1;
+      }
+    return out;
   }
 
   private edgeNear(q: V, within: number) {
@@ -700,44 +756,12 @@ export class Sticker {
     if (this.state === "done") return "default";
     const q = this.toLocal(x, y);
     if (this.rubbing) return this.overBook(x, y) ? "grab" : "default";
-    if (this.hasFlap && this.hitFlap(q)) return "grab";
-    return this.onCell(q) === LOOSE || this.edgeNear(q, 12) >= 0 ? "grab" : "default";
+    if (this.hitFlap(q) || this.parkedAt(q)) return "grab";
+    return this.edgeNear(q, 12) >= 0 ? "grab" : "default";
   }
 
   private overBook(x: number, y: number) {
     return x > BOOK.x0 && x < BOOK.x1 && y > BOOK.y0 && y < BOOK.y1;
-  }
-
-  /** Let go of the flap you had: it lies back down where it was, no longer stuck. */
-  private lower() {
-    if (!this.hasFlap) return;
-    for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === FLAP) this.cell[k] = LOOSE;
-    this.front_.fill(0);
-    this.front = 0;
-    this.state = "bare";
-  }
-
-  // Lift from a bit that was already loosened. No fingernail needed.
-  private grabLoose(q: V): StickerEvent {
-    let b = -1;
-    let bd = Infinity;
-    for (let k = 0; k < this.cell.length; k++) {
-      if (this.cell[k] !== LOOSE) continue;
-      const m = this.center(k);
-      const d = Math.hypot(m.x - q.x, m.y - q.y);
-      if (d < bd) {
-        bd = d;
-        b = k;
-      }
-    }
-    const at = this.center(b);
-    this.startFlap({ x: at.x, y: at.y }, this.inward(at), 14);
-    this.state = "held";
-    this.base = { ...this.p };
-    this.grabAt = q;
-    this.speed = 0;
-    this.stress = 0;
-    return "grab";
   }
 
   // The way into the glued paper from a point near its edge.
@@ -807,21 +831,23 @@ export class Sticker {
       return "rub";
     }
     const onPaper = this.onCell(q) === STUCK;
-    if (this.hasFlap && this.hitFlap(q)) {
+    const id = this.hitFlap(q) ? 0 : this.parkedAt(q);
+    if (this.hitFlap(q) || id) {
+      if (id) {
+        this.park();
+        this.unpark(id);
+        this.speed = 0;
+        this.stress = 0;
+      }
       this.state = "held";
       this.started = true;
       this.base = { ...this.p };
       this.grabAt = q;
       return "grab";
     }
-    if (this.onCell(q) === LOOSE) {
-      this.lower();
-      this.started = true;
-      return this.grabLoose(q);
-    }
     const e = this.edgeNear(q, 12);
     if (e >= 0) {
-      this.lower();
+      this.park();
       this.state = "scratch";
       this.scratchAt = e;
       this.travel = 0;
@@ -864,11 +890,10 @@ export class Sticker {
     return null;
   }
 
-  private detach(cells: number[]) {
-    const { d, r } = this.fold();
-    this.flyers.push({ cells, c: { ...this.c }, d, r, t: this.time, tex: this.L.tex, shape: this.L.shape, vinyl: this.L.kind === "vinyl" });
+  private detach(cells: number[], f: Fold = this) {
+    const { d, r } = this.fold(f);
+    this.flyers.push({ cells, c: { ...f.c }, d, r, t: this.time, tex: this.L.tex, shape: this.L.shape, vinyl: this.L.kind === "vinyl" });
     for (const k of cells) this.cell[k] = GONE;
-    this.pieces++;
     this.speed = 0;
     this.jerk = 0;
     this.stress = 0;
@@ -897,6 +922,7 @@ export class Sticker {
       }
     }
     this.detach(flap.filter((k) => this.cell[k] === FLAP));
+    this.pieces++;
     this.state = "bare";
   }
 
@@ -969,6 +995,17 @@ export class Sticker {
         if (this.stuck > 0) out.push("free");
       }
     }
+    // a parked flap with nothing glued next to it any more just comes away
+    this.parked.forEach((f, i) => {
+      if (!f) return;
+      const mine = (k: number) => this.cell[k] === PARKED && this.own[k] === i + 1;
+      if (this.frontOf(mine).some((v) => v === 1)) return;
+      const cells: number[] = [];
+      for (let k = 0; k < this.cell.length; k++) if (mine(k)) cells.push(k);
+      this.detach(cells, f);
+      this.parked[i] = null;
+      if (this.stuck > 0) out.push("free");
+    });
     if ((this.state === "bare" || this.state === "scratch") && this.stuck < 10) {
       // crumbs too small to get a nail under: they are part of the book now
       for (let k = 0; k < this.cell.length; k++)
@@ -978,10 +1015,14 @@ export class Sticker {
           this.fuzzOf[k] = this.li;
         }
       this.stuck = 0;
-      // loosened bits with nothing left holding them come away by themselves
-      const loose: number[] = [];
-      for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === LOOSE) loose.push(k);
-      if (loose.length) this.detach(loose);
+      // any parked flaps come away with the last of it
+      this.parked.forEach((f, i) => {
+        if (!f) return;
+        const cells: number[] = [];
+        for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === PARKED && this.own[k] === i + 1) cells.push(k);
+        this.detach(cells, f);
+      });
+      this.parked = [];
       if (this.li + 1 < this.layers.length) {
         this.activate(this.li + 1);
         out.push("under");
@@ -1038,11 +1079,20 @@ export class Sticker {
       if (t) ctx.drawImage(t.c, 0, 0, this.gw, this.gh);
     }
     this.drawResidue(ctx);
-    // stuck paper. Along the crease, cells are cut to the fold line so the edge is straight.
+    // every flap: the one in hand last, the parked ones as they were left
     const flap = this.hasFlap;
+    const folds: { f: Fold; mine: (k: number) => boolean; front: Uint8Array }[] = [];
+    this.parked.forEach((f, i) => {
+      if (!f) return;
+      const mine = (k: number) => this.cell[k] === PARKED && this.own[k] === i + 1;
+      folds.push({ f, mine, front: this.frontOf(mine) });
+    });
+    if (flap) folds.push({ f: this, mine: (k) => this.cell[k] === FLAP, front: this.front_ });
+    const onFront = (k: number) => folds.some((o) => o.front[k] === 1);
+    // stuck paper. Along each crease, cells are cut to the fold line so the edge is straight.
     if (tex) {
       ctx.save();
-      const keep = (k: number) => this.cell[k] === STUCK && !(flap && this.front_[k]);
+      const keep = (k: number) => this.cell[k] === STUCK && !onFront(k);
       this.cellsPath(ctx, (k) => keep(k) && !this.torn(k));
       // torn edges are ragged, not square
       for (let k = 0; k < this.cell.length; k++) {
@@ -1068,31 +1118,21 @@ export class Sticker {
         ctx.lineTo(m.x + Math.cos(a) * 4.6, m.y + Math.sin(a) * 4.6);
       }
       ctx.stroke();
-      if (flap) {
-        const { d, r } = this.fold();
+    }
+    for (const o of folds) {
+      if (tex) {
+        const { d, r } = this.fold(o.f);
         ctx.save();
-        this.halfPlane(ctx, this.c, d, r, 1);
+        this.halfPlane(ctx, o.f.c, d, r, 1);
         ctx.clip();
-        this.cellsPath(ctx, (k) => this.front_[k] === 1 || this.cell[k] === FLAP);
+        this.cellsPath(ctx, (k) => o.front[k] === 1 || o.mine(k));
         ctx.clip();
         ctx.drawImage(tex.c, 0, 0, this.gw, this.gh);
         ctx.restore();
       }
-    }
-    // loosened bits lie back down, not quite flat
-    const loose = (k: number) => this.cell[k] === LOOSE;
-    this.flatShadow(ctx, loose, 1.6);
-    if (tex) {
-      ctx.save();
-      this.cellsPath(ctx, loose);
-      ctx.clip();
-      ctx.drawImage(tex.c, 0, 0, this.gw, this.gh);
-      ctx.fillStyle = "rgba(255,255,255,0.16)";
-      ctx.fillRect(0, 0, this.gw, this.gh);
-      ctx.restore();
+      this.drawFlap(ctx, tex, o.f, o.mine, (k) => o.front[k] === 1);
     }
     if (flap) {
-      this.drawFlap(ctx, tex);
       // paper going white along the peel line: it's about to give
       if (this.stress > 0.05) {
         this.cellsPath(ctx, (k) => this.front_[k] === 1);
@@ -1347,14 +1387,15 @@ export class Sticker {
     ctx.restore();
   }
 
-  private drawFlap(ctx: CanvasRenderingContext2D, tex: Tex | null) {
-    const { d, r } = this.fold();
+  private drawFlap(ctx: CanvasRenderingContext2D, tex: Tex | null, f: Fold, mine: (k: number) => boolean, front: (k: number) => boolean) {
+    const { d, r } = this.fold(f);
     const half = r / 2;
+    const c = f.c;
     const side = (k: number) => {
       const m = this.center(k);
-      return (m.x - this.c.x) * d.x + (m.y - this.c.y) * d.y < half;
+      return (m.x - c.x) * d.x + (m.y - c.y) * d.y < half;
     };
-    const slack = (k: number) => this.cell[k] === FLAP && !side(k);
+    const slack = (k: number) => mine(k) && !side(k);
     // slack bits lie back down, loosely
     this.flatShadow(ctx, slack, 2.5);
     if (tex) {
@@ -1367,15 +1408,15 @@ export class Sticker {
       ctx.restore();
     }
     // the folded-back part, adhesive side up
-    const crease = (k: number) => (this.cell[k] === FLAP && side(k)) || this.front_[k] === 1;
+    const crease = (k: number) => (mine(k) && side(k)) || front(k);
     for (const [ox, oy] of [
       [2, 4],
       [0.8, 1.6],
     ]) {
       ctx.save();
       ctx.translate(ox, oy);
-      this.reflect(ctx, this.c, d, r);
-      this.halfPlane(ctx, this.c, d, r, -1);
+      this.reflect(ctx, c, d, r);
+      this.halfPlane(ctx, c, d, r, -1);
       ctx.clip();
       this.cellsPath(ctx, crease);
       ctx.fillStyle = "rgba(14,22,36,0.10)";
@@ -1383,12 +1424,12 @@ export class Sticker {
       ctx.restore();
     }
     ctx.save();
-    this.reflect(ctx, this.c, d, r);
-    this.halfPlane(ctx, this.c, d, r, -1);
+    this.reflect(ctx, c, d, r);
+    this.halfPlane(ctx, c, d, r, -1);
     ctx.clip();
     shapePath(ctx, this.L.shape);
     ctx.clip();
-    this.drawBack(ctx, tex, crease, this.L.kind === "vinyl", { c: this.c, d, r });
+    this.drawBack(ctx, tex, crease, this.L.kind === "vinyl", { c, d, r });
     ctx.restore();
   }
 
