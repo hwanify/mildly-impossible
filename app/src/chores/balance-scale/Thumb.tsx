@@ -14,12 +14,11 @@ export function Thumb() {
       canvas.width = Math.round(r.width * dpr);
       canvas.height = Math.round(r.height * dpr);
       const b = new Balance(5);
-      b.add(0, "whale", 1.42e8);
-      b.add(0, "cat", 4200);
-      b.add(1, "house", 1.31e8);
-      b.add(1, "person", 70000);
-      b.add(1, "person", 81000);
-      b.add(1, "ant", 0.003);
+      b.place(0, "whale", 1.42e8, -8, 0);
+      b.place(0, "cat", 4200, 18, 64, 0.05);
+      b.place(1, "house", 1.31e8, -36, 0);
+      b.place(1, "person", 81000, 84, 0);
+      b.place(1, "ant", 0.003, 112, 0);
       b.settle();
       const sc = canvas.width / W;
       const z = 1.12;
