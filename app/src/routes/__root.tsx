@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import siteCss from "../site.css?url";
 import { reportHiggsfieldError } from "../lib/higgsfield-error-reporting";
 import appMetaJson from "../app-meta.json";
+import { installAnalytics } from "../lib/analytics";
 
 declare const __HF_DESIGN_INSPECTOR__: boolean;
 
@@ -153,6 +154,9 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // Google Analytics: page views plus game_start / game_finish (see lib/analytics.ts)
+  useEffect(() => installAnalytics(), []);
 
   useEffect(() => {
     if (!__HF_DESIGN_INSPECTOR__) {
