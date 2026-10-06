@@ -1,7 +1,7 @@
 {
-  "og_title": null,
-  "og_description": null,
-  "og_image_url": null,
-  "favicon_url": null,
+  "og_title": "일상 보스전",
+  "og_description": "피티드 시트 개기, 테이프 끝 찾기, 이불 커버 씌우기. 매일 지는데 아무도 연습시켜 주지 않는 싸움들을 브라우저에서.",
+  "og_image_url": "/assets/og.png",
+  "favicon_url": "/assets/favicon.svg",
   "og_video_url": null
 }
