@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Sheet, W, H, tierFor, type Judge } from "../../game/fittedSheet";
 
 const STEPS = [
-  "Spread the sheet out",
   "Tuck one corner into its neighbor",
   "Tuck the other two together",
   "Bring all four corners together",
@@ -112,13 +111,7 @@ export function FittedSheetGame() {
     const ui = window.setInterval(() => {
       const st = sheet.stats();
       setDone((prev) => {
-        const next = [
-          prev[0] || st.flipped < 0.06,
-          prev[1] || st.maxGroup >= 2,
-          prev[2] || st.welded >= 4,
-          prev[3] || st.maxGroup >= 4,
-          prev[4],
-        ];
+        const next = [prev[0] || st.maxGroup >= 2, prev[1] || st.welded >= 4, prev[2] || st.maxGroup >= 4, prev[3]];
         return next.some((v, i) => v !== prev[i]) ? next : prev;
       });
       if (startRef.current !== null && !resultRef.current) setTime(performance.now() - startRef.current);
@@ -139,7 +132,7 @@ export function FittedSheetGame() {
     const s = sheetRef.current;
     if (!s || s.anim) return;
     setResult({ ...s.judge(), time, shakes: shakesRef.current });
-    setDone((d) => d.map((v, i) => (i === 4 ? true : v)));
+    setDone((d) => d.map((v, i) => (i === 3 ? true : v)));
   };
   const shake = () => {
     const s = sheetRef.current;
@@ -177,8 +170,8 @@ export function FittedSheetGame() {
       </div>
       <h1 className="serif play-title">Fold a Fitted Sheet</h1>
       <p className="play-lede">
-        Fresh out of the dryer. Drag anywhere to unfold it. Drop a corner onto another corner to tuck it in.
-        Submit when it looks like a rectangle.
+        Spread out flat, elastic corners and all. Drag a corner onto another corner to tuck it in. Submit when it
+        looks like a rectangle.
       </p>
       <div className="stage">
         <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A fitted sheet. Drag with your mouse or finger to fold it." />
