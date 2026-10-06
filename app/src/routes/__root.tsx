@@ -75,7 +75,8 @@ function buildHead(meta: AppMeta) {
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" as const },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap",
+        // Permanent Marker + Patrick Hand dress the site; Instrument Serif + Inter Tight are still drawn inside game canvases.
+        href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&family=Patrick+Hand&family=Permanent+Marker&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       { rel: "stylesheet", href: siteCss },

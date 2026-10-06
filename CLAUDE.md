@@ -1,7 +1,7 @@
 # Mildly Impossible
 
 Mouse-only browser toys about small household tasks that are technically possible (neal.fun style).
-English UI, calm design, dry deadpan copy. Live at https://impossible-chores.higgsfield.app
+English UI, goofy hand-drawn design, dry deadpan copy. Live at https://impossible-chores.higgsfield.app
 
 ## Stack and commands
 
@@ -27,7 +27,7 @@ English UI, calm design, dry deadpan copy. Live at https://impossible-chores.hig
 ## Conventions
 
 - Games are mouse-only via pointer events, so touch works too. Engines must not touch `window` or `document` at import time (SSR).
-- Palette: warm paper `#F6F4EF`, ink `#1C1C1A`, muted `#6B6A65`, line `#E2DFD8`, denim `#4A5F78`. Fonts: Instrument Serif (display), Inter Tight (UI).
+- Look: marker doodle on a notebook page (see `app/design-brief.md`). Paper `#FFFDF6`, ink `#222`, red `#CC3349`, crayon fills yellow `#FFE45C`, pink `#FFB3C1`, mint `#A8E6CF`, sky `#CDE3FF`. Fonts: Permanent Marker (titles, `.serif`), Patrick Hand (UI). Copy stays deadpan; the page is the joke.
 - Every game has a step checklist, short toast lines for events, and a result card with a big number plus a one-line tier. Reuse the shared classes in `site.css` (`.play`, `.stage`, `.steps`, `.toast`, `.result*`, `.btn-*`) so games look like one site.
 
 ## Adding a chore (several sessions work in parallel, one chore each)
