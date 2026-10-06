@@ -18,6 +18,9 @@ const TS = 3; // texture resolution per local unit
 // pressing within NAIL_REACH of an edge and wiggling NAIL_WORK units is enough to get a corner up.
 const NAIL_REACH = 20;
 const NAIL_WORK = 14;
+// What stays on the cover however well you peel: the strongest FILM of the glue, and blotches of SMEAR.
+const FILM = 0.07;
+const SMEAR = 0.09;
 
 const STUCK = 1;
 const FLAP = 2;
@@ -522,11 +525,11 @@ export class Sticker {
     this.layerTotal = this.stuck;
     this.pieces++;
     this.parked = [];
-    // the top few percent of glue never lets go of the cover
+    // the strongest glue never lets go of the cover
     const gs: number[] = [];
     for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === STUCK) gs.push(this.glue[k]);
     gs.sort((a, b) => a - b);
-    const q = gs[Math.floor(gs.length * 0.97)] ?? Infinity;
+    const q = gs[Math.floor(gs.length * (1 - FILM))] ?? Infinity;
     for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === STUCK) this.film[k] = this.glue[k] >= q ? 1 : 0;
     this.speed = 0;
     this.jerk = 0;
@@ -603,7 +606,8 @@ export class Sticker {
     const inst = (a * CELL * CELL) / dt / (Math.max(this.front, 4) * CELL);
     this.speed += (inst - this.speed) * (1 - Math.exp(-dt / 0.12));
     const v = this.speed;
-    const pGlue = clamp((v - this.glueAt) / 65, 0, 1) * 0.5 * P.residue;
+    // some glue always stays, in blotches, however gently it goes; hurrying leaves a lot more
+    const pGlue = Math.max(SMEAR, clamp((v - this.glueAt) / 65, 0, 1) * 0.5) * P.residue;
     const pFuzz = P.fuzz ? clamp((v - this.tearAt) / 120, 0, 1) * 0.5 : 0;
     let weak = 0;
     for (const k of got) {
@@ -876,6 +880,16 @@ export class Sticker {
     const n0 = this.inward(b);
     this.startFlap({ x: b.x - n0.x * 2.5, y: b.y - n0.y * 2.5 }, n0, 20);
     this.edges++;
+    // where the nail dug in, a paper label leaves a scuffed patch of its own fibres behind
+    if (this.props.fuzz)
+      for (let k = 0; k < this.cell.length; k++) {
+        if (this.cell[k] !== FLAP) continue;
+        const m = this.center(k);
+        if (Math.hypot(m.x - b.x, m.y - b.y) < 7 + this.rand() * 4) {
+          this.res[k] = FUZZ;
+          this.fuzzOf[k] = this.li;
+        }
+      }
     this.state = "held";
     this.base = { ...this.p };
     this.grabAt = q;
@@ -1247,7 +1261,8 @@ export class Sticker {
 
   private drawResidue(ctx: CanvasRenderingContext2D) {
     const show = (k: number, kind: number) => this.res[k] === kind && this.cell[k] !== STUCK;
-    ctx.fillStyle = "rgba(14,22,36,0.30)";
+    // glue left on a cloth cover reads as a pale, slightly grubby haze, not a stain
+    ctx.fillStyle = "rgba(214,208,192,0.34)";
     ctx.beginPath();
     for (let k = 0; k < this.res.length; k++) {
       if (!show(k, GLUE)) continue;
@@ -1256,13 +1271,22 @@ export class Sticker {
       ctx.arc(m.x, m.y, 3.4, 0, Math.PI * 2);
     }
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
     ctx.beginPath();
     for (let k = 0; k < this.res.length; k++) {
       if (!show(k, GLUE) || k % 3) continue;
       const m = this.center(k);
       ctx.moveTo(m.x, m.y);
       ctx.arc(m.x - 0.8, m.y - 0.8, 0.9, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.fillStyle = "rgba(40,38,34,0.35)";
+    ctx.beginPath();
+    for (let k = 0; k < this.res.length; k++) {
+      if (!show(k, GLUE) || hash(k + 23) > 0.22) continue;
+      const m = this.center(k);
+      ctx.moveTo(m.x + 0.9, m.y);
+      ctx.arc(m.x + (hash(k + 29) - 0.5) * 3, m.y + (hash(k + 31) - 0.5) * 3, 0.7, 0, Math.PI * 2);
     }
     ctx.fill();
     ctx.fillStyle = "rgba(246,243,236,0.55)";
@@ -1645,6 +1669,6 @@ export function stickerTier(r: StickerResult) {
   if (r.readable) return { tier: "They'll know", line: `Whatever else happens, they can still read '${r.readable}'.` };
   if (extra >= 1) return { tier: "In instalments", line: `It came off in ${r.pieces} pieces. At least the price went with them.` };
   if (r.lint > 12) return { tier: "Lint magnet", line: "The glue stayed and invited friends." };
-  if (pct >= 0.95) return { tier: "Nearly", line: "There is always a little glue. Wrap it quickly." };
+  if (pct >= 0.85) return { tier: "Nearly", line: "There is always a little glue. Wrap it quickly." };
   return { tier: "One piece, some glue", line: "The sticker left. Its glue decided to stay." };
 }
