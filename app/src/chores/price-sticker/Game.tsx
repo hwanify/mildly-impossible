@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
 
-const STEPS = ["Pinch the lifted corner", "Fold it back over itself, slowly", "Get all of it off"];
-const NO_CORNER = "Pick at an edge until a corner lifts";
+
+const STEPS = ["Lift an edge", "Work in from a few sides", "Get all of it off", "Rub off what's left"];
 const TEARS = ["It tore. Of course it tore.", "Another piece. It's a collection now.", "You now own several stickers.", "This is just confetti with a barcode."];
 const LINES: Partial<Record<StickerEvent, string>> = {
   grab: "Slowly. Slower than that.",
@@ -11,7 +11,10 @@ const LINES: Partial<Record<StickerEvent, string>> = {
   glue: "That left some glue behind.",
   free: "That bit came off on its own.",
   middle: "Not the middle. Find an edge.",
-  busy: "One corner at a time.",
+  wide: "That's a lot of sticker at once. Try another edge.",
+  strain: "It's going white. Slower.",
+  rub: "Rub it off with your thumb.",
+  pill: "It's balling up. That's lint now.",
   scratch: "You pick at it with a fingernail.",
   lift: "There. A new corner.",
   stubborn: "It's holding on here. Slower.",
@@ -31,10 +34,10 @@ export function Game() {
   const toastTimer = useRef<number | undefined>(undefined);
   const [round, setRound] = useState(0);
   const [done, setDone] = useState<boolean[]>(() => STEPS.map(() => false));
-  const [steps, setSteps] = useState(STEPS);
-  const [zones, setZones] = useState({ glueAt: 150, tearAt: 215 });
   const [time, setTime] = useState(0);
-  const [meter, setMeter] = useState({ speed: 0, stress: 0, peeled: 0 });
+  const [rubbing, setRubbing] = useState(false);
+  const [shared, setShared] = useState(false);
+  const finishRef = useRef<() => void>(() => {});
   const [toast, setToast] = useState<string | null>(null);
   const [result, setResult] = useState<StickerResult | null>(null);
   const resultRef = useRef<StickerResult | null>(null);
@@ -101,13 +104,10 @@ export function Game() {
     const asked = round === 0 ? Number(new URLSearchParams(window.location.search).get("seed")) : 0;
     const game = new Sticker(asked || Date.now());
     startRef.current = null;
-    setSteps(game.lifted ? STEPS : [NO_CORNER, ...STEPS.slice(1)]);
-    setZones({ glueAt: game.props.glueAt, tearAt: game.props.tearAt });
     const introAt = window.setTimeout(() => say(game.lifted ? game.props.intro : `${game.props.intro} Nothing is lifted.`), 300);
     tears.current = 0;
     let raf = 0;
     let last = performance.now();
-    let finishAt = 0;
     let lastTick = 0;
     document.fonts?.ready.then(() => game.invalidate());
 
@@ -132,17 +132,31 @@ export function Game() {
     const finish = () => {
       if (resultRef.current) return;
       const t = startRef.current === null ? 0 : performance.now() - startRef.current;
+      game.wrap();
       setTime(t);
-      setDone([true, true, true]);
-      setResult({ clean: game.clean, pieces: game.pieces, layers: game.layers.length, glue: game.glueCells, scratches: game.scratches, time: t, kind: game.layers[0].kind });
+      setDone((d) => [d[0], d[1], true, true]);
+      setResult({
+        clean: game.clean,
+        pieces: game.pieces,
+        layers: game.layers.length,
+        glue: game.glueCells,
+        lint: game.lint,
+        edges: game.edges,
+        readable: game.readable,
+        time: t,
+        kind: game.layers[0].kind,
+      });
     };
+    finishRef.current = finish;
     const handle = (ev: StickerEvent | null) => {
       if (!ev) return;
       if (ev === "done") {
         pop();
-        finishAt = performance.now() + 900;
+        setRubbing(true);
+        say(game.glueCells ? "All off. Now the glue." : "All off.");
         return;
       }
+      if (ev === "rub" && game.rubbed > 0) return;
       if (ev === "tear") {
         rasp(900, 0.22, 0.28, 0.7);
         rasp(2400, 0.08, 0.18);
@@ -153,8 +167,7 @@ export function Game() {
       if (ev === "lift") rasp(3200, 0.05, 0.05);
       if (ev === "under") {
         pop();
-        setZones({ glueAt: game.props.glueAt, tearAt: game.props.tearAt });
-        say(game.hasFlap ? "There's another one underneath. It was cheaper." : "There's another one underneath. It was cheaper. Nothing is lifted.");
+        say("There's another one underneath. It was cheaper.");
         return;
       }
       const line = LINES[ev];
@@ -165,7 +178,7 @@ export function Game() {
       const p = toWorld(e);
       const ev = game.down(p.x, p.y);
       if (!ev) return;
-      if (ev === "grab" || ev === "scratch") {
+      if (ev === "grab" || ev === "scratch" || ev === "rub") {
         window.clearTimeout(introAt);
         if (startRef.current === null) startRef.current = performance.now();
         e.preventDefault();
@@ -177,7 +190,7 @@ export function Game() {
     };
     const onMove = (e: PointerEvent) => {
       const p = toWorld(e);
-      if (game.state === "held" || game.state === "scratch") {
+      if (game.state === "held" || game.state === "scratch" || game.state === "rubbing") {
         const before = game.travel;
         handle(game.move(p.x, p.y));
         if (game.state === "scratch" && Math.floor(game.travel / 9) > Math.floor(before / 9)) rasp(4200, 0.025, 0.03, 3);
@@ -204,11 +217,7 @@ export function Game() {
         const v = Math.min(1, game.speed / SPEED_MAX);
         rasp(3400 - v * 2200 + Math.random() * 600, Math.min(0.09, 0.018 + 0.012 * Math.sqrt(game.claimed)), 0.02 + v * 0.03, 1.6);
       }
-      if (game.state === "scratch" || game.state === "held") canvas.style.cursor = "grabbing";
-      if (finishAt && now > finishAt) {
-        finishAt = 0;
-        finish();
-      }
+      if (game.state === "scratch" || game.state === "held" || game.state === "rubbing") canvas.style.cursor = "grabbing";
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const sc = canvas.width / W;
@@ -219,9 +228,8 @@ export function Game() {
     };
     raf = requestAnimationFrame(frame);
     const ui = window.setInterval(() => {
-      setMeter({ speed: game.speed, stress: game.stress, peeled: game.peeled });
       setDone((prev) => {
-        const next = [prev[0] || game.started, prev[1] || game.peeled > 0.5, prev[2] || game.state === "done"];
+        const next = [prev[0] || game.started, prev[1] || game.edges >= 3, prev[2] || game.rubbing, prev[3] || game.state === "done"];
         return next.some((v, i) => v !== prev[i]) ? next : prev;
       });
       if (startRef.current !== null && !resultRef.current) setTime(performance.now() - startRef.current);
@@ -242,15 +250,30 @@ export function Game() {
     setResult(null);
     setDone(STEPS.map(() => false));
     setTime(0);
-    setMeter({ speed: 0, stress: 0, peeled: 0 });
+    setRubbing(false);
+    setShared(false);
     setToast(null);
     setRound((r) => r + 1);
   };
 
+  const share = async () => {
+    if (!result) return;
+    const bits = [`${result.pieces} ${result.pieces === 1 ? "piece" : "pieces"}`, `${Math.floor(result.clean * 100)}% clean`];
+    const text = `I peeled a price sticker off a present. ${bits.join(", ")}.${result.readable ? ` They can still read '${result.readable}'.` : ""}`;
+    const url = `${window.location.origin}/price-sticker`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Peel the Price Sticker", text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      setShared(true);
+    } catch {
+      /* cancelled or blocked */
+    }
+  };
+
   const tier = result ? stickerTier(result) : null;
-  const { glueAt, tearAt } = zones;
-  const zone = meter.speed < glueAt ? "Slow and clean" : meter.speed < tearAt ? "Leaving glue" : "About to tear";
-  const zoneKey = meter.speed < glueAt ? "ok" : meter.speed < tearAt ? "glue" : "tear";
 
   return (
     <>
@@ -264,27 +287,16 @@ export function Game() {
       </div>
       <h1 className="serif play-title">Peel the Price Sticker</h1>
       <p className="play-lede">
-        It's a present. The price has to go before you wrap it. Pinch the lifted corner and fold it back over itself.
-        Slowly, or it tears and leaves glue on the cover.
+        It's a present. The price has to go before you wrap it. Lift any edge with a fingernail and fold it back over
+        itself. Big strips tear, so work in from the sides. Then rub off what's left.
       </p>
       <div className="stage stage-room">
-        <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A new hardcover book with a price sticker on its cover. One corner of the sticker is lifted." />
+        <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A new hardcover book with a price sticker on its cover." />
         {toast && <div className="toast">{toast}</div>}
-        {!result && (
-          <div className="meter price-sticker-meter" aria-live="off">
-            <span className={`price-sticker-zone price-sticker-${zoneKey}`}>{zone}</span>
-            <span className="price-sticker-bar" aria-hidden="true">
-              <i style={{ left: `${(glueAt / SPEED_MAX) * 100}%`, width: `${((Math.min(tearAt, SPEED_MAX) - glueAt) / SPEED_MAX) * 100}%` }} className="price-sticker-band" />
-              <i style={{ left: `${(Math.min(tearAt, SPEED_MAX) / SPEED_MAX) * 100}%`, right: 0 }} className="price-sticker-band price-sticker-hot" />
-              <b style={{ left: `${Math.min(100, (meter.speed / SPEED_MAX) * 100)}%` }} />
-            </span>
-            <span className="price-sticker-off">{Math.round(meter.peeled * 100)}% off</span>
-          </div>
-        )}
       </div>
       <div className="below">
         <ol className="steps">
-          {steps.map((s, i) => (
+          {STEPS.map((s, i) => (
             <li key={s} className={done[i] ? "ok" : ""}>
               <b>{done[i] ? "✓" : i + 1}</b>
               {s}
@@ -295,6 +307,11 @@ export function Game() {
           <button className="btn-shake" onClick={fresh}>
             Buy another copy
           </button>
+          {rubbing && !result && (
+            <button className="btn-done" onClick={() => finishRef.current()}>
+              Wrap it
+            </button>
+          )}
         </div>
       </div>
       {result && tier && (
@@ -315,11 +332,14 @@ export function Game() {
                 Glue left<strong>{result.glue === 0 ? "None" : result.glue < 10 ? "A trace" : `${(result.glue * 0.01).toFixed(1)} cm²`}</strong>
               </div>
               <div>
-                Fingernail<strong>{result.scratches ? `${result.scratches}×` : "Not needed"}</strong>
+                Edges lifted<strong>{result.edges}</strong>
               </div>
             </div>
             <div className="result-row">
-              <button className="btn-again" onClick={fresh}>
+              <button className="btn-again" onClick={share}>
+                {shared ? "Copied" : "Share result"}
+              </button>
+              <button className="btn-shake" onClick={fresh}>
                 Peel another
               </button>
               <a className="btn-keep" href="/">

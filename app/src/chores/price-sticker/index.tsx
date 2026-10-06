@@ -1,7 +1,6 @@
 import type { Chore } from "../types";
 import { Game } from "./Game";
 import { Thumb } from "./Thumb";
-import stylesheet from "./style.css?url";
 
 export const chore: Chore = {
   slug: "price-sticker",
@@ -12,5 +11,4 @@ export const chore: Chore = {
   status: "live",
   Thumb,
   Game,
-  stylesheet,
 };
