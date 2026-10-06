@@ -20,6 +20,10 @@ const LEAVES = [
 const POT = { x0: 594, x1: 652, y0: 474 };
 const STEM = { x0: 615, x1: 627, y0: 380 };
 const CAT = { x: 470, y: FLOOR - 14 };
+const CAT_DESK_X = 778; // where the cat sits once it has made it onto the desk
+const WINDOW = { x0: 236, x1: 330, y0: 70, y1: 220 };
+const VAC_R = 26;
+const CALL_SECONDS = 11; // the call starts this many seconds (plus up to 2) after you pick the mug up
 const MW = 58; // glass body
 const MH = 70;
 const IW = 48; // inside
@@ -31,7 +35,27 @@ const K = 0.18; // hand spring
 const C = 0.55;
 
 export type MugState = "rest" | "held" | "landed" | "falling" | "broken";
-export type MugEvent = "pickup" | "lamp" | "plant" | "spill" | "cat" | "putback" | "dropped" | "delivered";
+export type MugEvent =
+  | "pickup"
+  | "lamp"
+  | "plant"
+  | "spill"
+  | "cat"
+  | "putback"
+  | "dropped"
+  | "delivered"
+  | "tick"
+  | "late"
+  | "draft"
+  | "leap"
+  | "catBump"
+  | "planeIn"
+  | "planeHit"
+  | "vacuum"
+  | "vacCat";
+/** Things that may or may not happen this time. Each round picks two. */
+export type Hazard = "draft" | "cat" | "plane" | "vacuum";
+type Plane = { x: number; y: number; vx: number; vy: number; a: number; hit: boolean };
 type Drop = { x: number; y: number; vx: number; vy: number };
 type Stain = { x: number; r: number; floor: boolean };
 type Shard = { x: number; y: number; vx: number; vy: number; a: number; va: number; s: number };
@@ -85,9 +109,22 @@ export class MugGame {
   lampV = 0;
   plantWob = 0;
   plantWobV = 0;
-  cat: "asleep" | "awake" | "gone" = "asleep";
+  cat: "asleep" | "awake" | "gone" | "leap" | "desk" = "asleep";
   catX = CAT.x;
+  catY = CAT.y;
   catT = 0;
+  hazards: Hazard[];
+  /** Frames from picking the mug up until the call starts. */
+  deadline: number;
+  startFrame = -1;
+  endFrame = -1;
+  plane: Plane | null = null;
+  vac = { x: 300, dir: 1, on: false };
+  sway = 0;
+  private at: Record<Hazard, number>;
+  private nextGust = 0;
+  private lateSaid = false;
+  private lastTick = 99;
   rugStains = 0;
   drops: Drop[] = [];
   stains: Stain[] = [];
@@ -102,6 +139,27 @@ export class MugGame {
 
   constructor(seed: number) {
     this.r = rng(seed);
+    const pool: Hazard[] = ["draft", "cat", "plane", "vacuum"];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(this.r() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    this.hazards = pool.slice(0, 2);
+    this.deadline = Math.round(60 * (CALL_SECONDS + this.r() * 2));
+    // when each one shows up, in frames after the pick-up
+    this.at = {
+      draft: Math.round(20 + this.r() * 80),
+      cat: Math.round(80 + this.r() * 220),
+      plane: Math.round(90 + this.r() * 260),
+      vacuum: Math.round(10 + this.r() * 60),
+    };
+  }
+
+  /** Seconds until the call starts (negative once it has). Frozen when the mug is delivered or dropped. */
+  get callLeft() {
+    if (this.startFrame < 0) return this.deadline / 60;
+    const now = this.endFrame >= 0 ? this.endFrame : this.frames;
+    return (this.deadline - (now - this.startFrame)) / 60;
   }
 
   get ml() {
@@ -126,6 +184,7 @@ export class MugGame {
     if (this.state !== "rest" || !this.hitMug(px, py)) return null;
     this.state = "held";
     this.started = true;
+    if (this.startFrame < 0) this.startFrame = this.frames;
     this.offX = px - this.x;
     this.offY = py - this.y;
     this.tx = this.x;
@@ -158,6 +217,7 @@ export class MugGame {
     }
     this.state = "falling";
     this.dropped = true;
+    if (this.endFrame < 0) this.endFrame = this.frames;
     return "dropped";
   }
 
@@ -215,14 +275,42 @@ export class MugGame {
       if (jl > 0.6 && this.once("lamp", 40)) ev = "lamp";
     }
     let jp = 0;
-    for (const l of LEAVES) jp = Math.max(jp, hitCircle(l.x, l.y, l.r));
+    for (const l of this.leaves()) jp = Math.max(jp, hitCircle(l.x, l.y, l.r));
     if (jp > 0) {
       this.plantWobV += clamp(this.vx * 0.01, -0.08, 0.08);
       if (jp > 0.6 && this.once("plant", 40)) ev = "plant";
     }
+    // a cat in mid-leap, or sitting on the desk
+    if (this.cat === "desk" || (this.cat === "leap" && this.catT > 24)) {
+      const jc = hitCircle(this.catX, this.catY - 12, 26);
+      if (jc > 0.3 && this.once("catBump", 50)) {
+        this.thv += (this.r() - 0.5) * 0.08;
+        this.ripv += 2;
+        ev = "catBump";
+      }
+    }
+    const pl = this.plane;
+    if (pl && !pl.hit && hitCircle(pl.x, pl.y, 16) > 0) {
+      pl.hit = true;
+      pl.vx *= -0.25;
+      pl.vy = -1.5;
+      // it is only paper, but it is paper you did not see coming
+      this.thv += pl.x > this.x ? 0.07 : -0.07;
+      this.ripv += 3;
+      this.bv += 1.5;
+      ev = "planeHit";
+    }
     this.x = clamp(this.x, hw, W - hw);
     this.y = clamp(this.y, hh, FLOOR - hh);
     return ev;
+  }
+
+  /** Leaves, where they are right now: the whole plant rocks on its pot when bumped. */
+  private leaves() {
+    const a = this.plantWob * 0.15;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    return LEAVES.map((l) => ({ x: 623 + (l.x - 623) * c - (l.y - POT.y0) * sn, y: POT.y0 + (l.x - 623) * sn + (l.y - POT.y0) * c, r: l.r }));
   }
 
   private bounce(nx: number, ny: number) {
@@ -288,6 +376,7 @@ export class MugGame {
       const calm = Math.abs(this.thv) + Math.abs(this.bv) < 0.02;
       if (!this.delivered && this.landedFor > 50 && (calm || this.landedFor > 180)) {
         this.delivered = true;
+        if (this.endFrame < 0) this.endFrame = this.frames - this.landedFor;
         out.push("delivered");
       }
     }
@@ -320,6 +409,20 @@ export class MugGame {
       if (this.catT > 26) this.catX -= 9;
       if (this.catX < -80) this.cat = "gone";
     }
+    if (this.cat === "leap") {
+      // crouch, then one long arc from the floor onto the desk, straight through the room
+      this.catT++;
+      const u = clamp((this.catT - 24) / 54, 0, 1);
+      if (this.catT > 24) {
+        this.catX = CAT.x + (CAT_DESK_X - CAT.x) * u;
+        this.catY = CAT.y + (DESK.top - 14 - CAT.y) * u - Math.sin(u * Math.PI) * 240;
+      }
+      if (u >= 1) {
+        this.cat = "desk";
+        this.catY = DESK.top - 14;
+      }
+    }
+    this.hazardStep(out);
     this.lampV += -0.0021 * Math.sin(this.lampA) - 0.006 * this.lampV;
     this.lampA += this.lampV;
     this.plantWobV += -0.08 * this.plantWob - 0.06 * this.plantWobV;
@@ -338,7 +441,82 @@ export class MugGame {
       }
     }
     this.steamT += 1;
+    this.sway *= 0.97;
     return out;
+  }
+
+  private hazardStep(out: MugEvent[]) {
+    if (this.startFrame < 0) return;
+    const t = this.frames - this.startFrame;
+    if (this.endFrame < 0) {
+      const left = this.deadline - t;
+      if (left <= 0 && !this.lateSaid) {
+        this.lateSaid = true;
+        out.push("late");
+      }
+      const sec = Math.ceil(left / 60);
+      if (left > 0 && sec <= 3 && sec < this.lastTick) {
+        this.lastTick = sec;
+        out.push("tick");
+      }
+    }
+    const has = (h: Hazard) => this.hazards.includes(h);
+    if (has("draft")) {
+      if (t === this.at.draft) out.push("draft");
+      if (t >= this.at.draft && t >= this.nextGust) {
+        // a gust through the window: the lamp gets a shove, the curtain billows
+        const dir = this.lampA > 0 ? -1 : 1;
+        this.lampV += dir * (0.009 + this.r() * 0.008);
+        this.sway = 1;
+        this.nextGust = t + 130 + Math.round(this.r() * 110);
+      }
+    }
+    if (has("cat") && t === this.at.cat && this.cat === "asleep") {
+      this.cat = "leap";
+      this.catT = 0;
+      out.push("leap");
+    }
+    if (has("plane") && t === this.at.plane) {
+      this.plane = { x: W + 30, y: 200 + this.r() * 200, vx: -6.5, vy: 0.15, a: 0, hit: false };
+      out.push("planeIn");
+    }
+    const pl = this.plane;
+    if (pl) {
+      pl.x += pl.vx;
+      pl.y += pl.vy + (pl.hit ? 0 : Math.sin(pl.x * 0.025) * 0.5);
+      if (pl.hit) {
+        pl.vy += 0.22;
+        pl.a += 0.12;
+      }
+      if (pl.x < -40 || pl.x > W + 60 || pl.y > FLOOR - 4) this.plane = null;
+    }
+    if (has("vacuum")) {
+      const v = this.vac;
+      if (t === this.at.vacuum) {
+        v.on = true;
+        out.push("vacuum");
+      }
+      if (v.on) {
+        v.x += v.dir * 2.2;
+        // it finds the plant pot the way robot vacuums find things
+        if (v.dir > 0 && v.x + VAC_R > POT.x0 - 4 && v.x < POT.x1) {
+          v.x = POT.x0 - 4 - VAC_R;
+          v.dir = -1;
+          this.plantWobV -= 0.5;
+        } else if (v.dir < 0 && v.x - VAC_R < POT.x1 + 4 && v.x > POT.x0) {
+          v.x = POT.x1 + 4 + VAC_R;
+          v.dir = 1;
+          this.plantWobV += 0.5;
+        }
+        if (v.x < COUNTER.x1 + VAC_R + 4) v.dir = 1;
+        if (v.x > DESK.x0 - 10) v.dir = -1;
+        if (this.cat === "asleep" && Math.abs(v.x - this.catX) < 52) {
+          this.cat = "awake";
+          this.catT = 0;
+          out.push("vacCat");
+        }
+      }
+    }
   }
 
   private surfaceAt(xr: number) {
@@ -440,6 +618,24 @@ export class MugGame {
       ctx.fill();
     }
 
+    // window and curtain
+    ctx.fillStyle = "#EAF1F6";
+    ctx.fillRect(WINDOW.x0, WINDOW.y0, WINDOW.x1 - WINDOW.x0, WINDOW.y1 - WINDOW.y0);
+    ctx.strokeStyle = "#D6D0C4";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(WINDOW.x0, WINDOW.y0, WINDOW.x1 - WINDOW.x0, WINDOW.y1 - WINDOW.y0);
+    ctx.lineWidth = 2;
+    this.line(ctx, (WINDOW.x0 + WINDOW.x1) / 2, WINDOW.y0, (WINDOW.x0 + WINDOW.x1) / 2, WINDOW.y1);
+    const billow = this.sway * 26 * Math.sin(this.steamT * 0.12);
+    ctx.fillStyle = "rgba(214,196,170,0.85)";
+    ctx.beginPath();
+    ctx.moveTo(WINDOW.x1 - 4, WINDOW.y0 - 8);
+    ctx.lineTo(WINDOW.x1 + 22, WINDOW.y0 - 8);
+    ctx.quadraticCurveTo(WINDOW.x1 + 26 + billow, (WINDOW.y0 + WINDOW.y1) / 2, WINDOW.x1 + 18 + billow * 1.6, WINDOW.y1 + 16);
+    ctx.lineTo(WINDOW.x1 - 8 + billow * 1.3, WINDOW.y1 + 16);
+    ctx.quadraticCurveTo(WINDOW.x1 - 2 + billow * 0.6, (WINDOW.y0 + WINDOW.y1) / 2, WINDOW.x1 - 4, WINDOW.y0 - 8);
+    ctx.fill();
+
     // counter, coffee machine
     ctx.fillStyle = "#E6E0D5";
     ctx.fillRect(COUNTER.x0, COUNTER.top, COUNTER.x1 - COUNTER.x0, FLOOR - COUNTER.top);
@@ -504,6 +700,18 @@ export class MugGame {
     ctx.closePath();
     ctx.fill();
 
+    // robot vacuum
+    if (this.vac.on) {
+      const v = this.vac;
+      ctx.fillStyle = "#3E3D3A";
+      this.round(ctx, v.x - VAC_R, FLOOR - 16, VAC_R * 2, 14, 7);
+      ctx.fill();
+      ctx.fillStyle = "#6FA36B";
+      ctx.beginPath();
+      ctx.arc(v.x + v.dir * 10, FLOOR - 12, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // cat
     if (this.cat !== "gone") this.drawCat(ctx);
 
@@ -535,6 +743,29 @@ export class MugGame {
     ctx.ellipse(0, 23, 18, 6, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+
+    // paper airplane
+    const pl = this.plane;
+    if (pl) {
+      ctx.save();
+      ctx.translate(pl.x, pl.y);
+      ctx.rotate(pl.a);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.strokeStyle = "rgba(90,90,90,0.7)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(-18, 0);
+      ctx.lineTo(16, -9);
+      ctx.lineTo(10, 0);
+      ctx.lineTo(16, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      this.line(ctx, -18, 0, 10, 0);
+      ctx.restore();
+    }
+
+    this.drawCall(ctx);
 
     for (const sh of this.shards) {
       ctx.save();
@@ -660,10 +891,82 @@ export class MugGame {
     }
   }
 
+  /** The countdown to the call, on a little tag over the laptop. */
+  private drawCall(ctx: CanvasRenderingContext2D) {
+    if (this.startFrame < 0) return;
+    const left = this.callLeft;
+    const late = left <= 0;
+    const done = this.endFrame >= 0;
+    const s = Math.ceil(Math.abs(left));
+    const text = done ? (late ? `Joined ${s}s late` : `Joined, ${Math.floor(left)}s early`) : late ? `Call started ${s}s ago` : `Call in 0:${String(s).padStart(2, "0")}`;
+    ctx.save();
+    ctx.font = "600 15px 'Inter Tight', system-ui, sans-serif";
+    const w = ctx.measureText(text).width + 22;
+    const x = Math.min(W - w - 8, LAPTOP.x1 - w + 6);
+    const y = LAPTOP.y0 - 54;
+    const urgent = !done && (late || left < 3.5);
+    ctx.fillStyle = urgent ? "#CC3349" : "#FFFDF6";
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 2;
+    this.round(ctx, x, y, w, 28, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + w - 30, y + 28);
+    ctx.lineTo(x + w - 22, y + 38);
+    ctx.lineTo(x + w - 16, y + 28);
+    ctx.fill();
+    ctx.fillStyle = urgent ? "#FFFFFF" : "#222";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x + 11, y + 14.5);
+    ctx.restore();
+  }
+
   private drawCat(ctx: CanvasRenderingContext2D) {
     const x = this.catX;
-    const y = CAT.y;
+    const y = this.catY;
     ctx.fillStyle = "#8F8C86";
+    if (this.cat === "leap" || this.cat === "desk") {
+      if (this.cat === "desk" || this.catT <= 24) {
+        // sitting (or crouched, about to go)
+        const crouch = this.cat === "leap" ? 6 : 0;
+        ctx.beginPath();
+        ctx.ellipse(x, y - 14 + crouch, 18, 20 - crouch, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x - 6, y - 38 + crouch * 1.5, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x - 15, y - 44 + crouch * 1.5);
+        ctx.lineTo(x - 13, y - 56 + crouch * 1.5);
+        ctx.lineTo(x - 6, y - 47 + crouch * 1.5);
+        ctx.moveTo(x - 2, y - 47 + crouch * 1.5);
+        ctx.lineTo(x + 3, y - 56 + crouch * 1.5);
+        ctx.lineTo(x + 5, y - 44 + crouch * 1.5);
+        ctx.fill();
+        ctx.strokeStyle = "#8F8C86";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(x + 14, y - 4);
+        ctx.quadraticCurveTo(x + 34, y - 6, x + 30, y - 26);
+        ctx.stroke();
+      } else {
+        // stretched out mid-air
+        ctx.beginPath();
+        ctx.ellipse(x, y - 12, 34, 11, -0.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + 32, y - 22, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#8F8C86";
+        ctx.lineWidth = 5;
+        this.line(ctx, x + 18, y - 10, x + 36, y - 2);
+        this.line(ctx, x - 20, y - 2, x - 38, y + 8);
+        ctx.lineWidth = 6;
+        this.line(ctx, x - 30, y - 6, x - 56, y - 18);
+      }
+      return;
+    }
     if (this.cat === "asleep") {
       ctx.beginPath();
       ctx.ellipse(x, y, 34, 15, 0, 0, Math.PI * 2);
@@ -720,11 +1023,26 @@ export class MugGame {
   }
 }
 
-export type MugResult = { ml: number; temp: number; rug: number; cat: "asleep" | "awake" | "gone"; time: number; coaster: boolean; dropped: boolean };
+export type MugResult = {
+  ml: number;
+  temp: number;
+  rug: number;
+  cat: "asleep" | "awake" | "gone" | "leap" | "desk";
+  time: number;
+  coaster: boolean;
+  dropped: boolean;
+  /** Seconds to spare when it landed (negative: that late). */
+  spare: number;
+};
 
 export function mugTier(r: MugResult) {
   const pct = r.ml / START_ML;
   if (r.dropped) return { tier: "Gravity", line: "The mug is now several smaller mugs." };
+  if (r.spare < 0) {
+    if (pct >= 0.95)
+      return { tier: "Full and late", line: pct >= 0.995 ? "Not a drop spilled. The call started without you." : "Hardly a drop spilled. The call started without you." };
+    return { tier: "Late and lighter", line: "You missed the start of the call and some of the coffee." };
+  }
   if (pct >= 0.995 && r.rug === 0) return { tier: "Barista hands", line: "Not a single drop. Suspicious, honestly." };
   if (pct >= 0.95) return { tier: "Steady", line: r.rug ? "A drop or two. Nobody will notice. The rug noticed." : "A drop or two. Nobody will notice." };
   if (pct >= 0.8) return { tier: "Trail of evidence", line: "Anyone could follow you from the kitchen." };
