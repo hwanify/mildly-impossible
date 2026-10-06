@@ -42,7 +42,7 @@ Each session builds exactly one chore, on its own branch, touching only its own 
    - `Thumb.tsx`: hub card art, ideally a still frame drawn by the engine (see `components/chores/ChoreArt.tsx`)
    - `TableItem.tsx`: the thing itself as it lies on the hub's table, seen from above (flat SVG in the game's colours, or the engine's still cropped to the object, see `chores/pizza/TableItem.tsx`). Set it as `TableItem` in `chore`; without one the hub shows `Thumb` as a photo print.
    - `style.css` (only if needed): import as `import stylesheet from "./style.css?url"` and set `stylesheet` in `chore`. Prefix every class with the slug.
-   - To build a chore that is listed as "soon" (e.g. `duvet-cover`), take over its existing folder and switch it to `"live"`.
+   - To build a chore that is listed as "soon", take over its existing folder and switch it to `"live"`.
 3. Do not edit shared files: `routes/`, `chores/registry.ts`, `chores/types.ts`, `site.css`, `__root.tsx`, `app-meta.json`, `public/assets/og.png`, other chores' folders. If a shared change is really needed, make it a separate small PR so it does not ride along with a game.
 4. Before opening the PR, in `app/`: `bun run build` (regenerates `src/routeTree.gen.ts`), then `bun run typecheck`. Both must pass. Check it in the browser with `bun run dev`, or `bun run preview` for the production build.
 5. Open a PR to `main`. Before merging, merge the latest `main` into the branch and re-run build + typecheck. Once they pass, merge the PR yourself (squash) without asking the user for confirmation.
