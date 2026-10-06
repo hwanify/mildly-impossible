@@ -1,6 +1,6 @@
 # Mildly Impossible
 
-Small household tasks that are technically possible. There are a thousand tutorials for each of them. This is the practice room.
+Small, everyday things that are technically possible. Everyone else seems to manage. This is the practice room.
 
 A collection of mouse-only browser toys in the spirit of neal.fun.
 

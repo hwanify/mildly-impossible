@@ -15,6 +15,7 @@ const FRICTION = 0.8;
 const ITER = 18;
 export const SNAP = 46;
 const GRAB = 40;
+const CORNER_R = 34; // a corner that shows this close to the pointer is what you grab
 const TRI_REST = S * S; // a triangle's cross product when lying flat
 // The two sides of the cloth: printed denim on the right side, plain and pale on the wrong side.
 const FRONT = "#6E86A4";
@@ -262,14 +263,81 @@ export class Sheet {
     return z;
   }
 
+  // Is this sheet corner showing, or is a later-drawn piece of cloth lying over it? (Corners
+  // tucked together count as one: they don't hide each other.)
+  private cornerShows(k: number) {
+    const { x, y } = this;
+    const own = new Set<number>();
+    for (const c of this.groupOf(k) ?? [k]) for (const t of this.ptTris[c]) own.add(t);
+    const pos = new Int32Array(TN);
+    this.order.forEach((t, i) => (pos[t] = i));
+    let rank = -1;
+    for (const t of own) rank = Math.max(rank, pos[t]);
+    const px = x[k];
+    const py = y[k];
+    for (let i = rank + 1; i < this.order.length; i++) {
+      const t = this.order[i];
+      if (own.has(t)) continue;
+      const a = this.ta[t];
+      const b = this.tb[t];
+      const c = this.tc[t];
+      const s0 = (x[b] - x[a]) * (py - y[a]) - (y[b] - y[a]) * (px - x[a]);
+      const s1 = (x[c] - x[b]) * (py - y[b]) - (y[c] - y[b]) * (px - x[b]);
+      const s2 = (x[a] - x[c]) * (py - y[c]) - (y[a] - y[c]) * (px - x[c]);
+      if ((s0 > 0 && s1 > 0 && s2 > 0) || (s0 < 0 && s1 < 0 && s2 < 0)) return false;
+    }
+    return true;
+  }
+
+  /** The nearest sheet corner within CORNER_R that isn't buried under other cloth, or -1. */
+  visibleCorner(wx: number, wy: number) {
+    let best = -1;
+    let bd = CORNER_R;
+    for (const c of this.corners) {
+      const d = Math.hypot(this.x[c] - wx, this.y[c] - wy);
+      if (d < bd && this.cornerShows(c)) {
+        bd = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
   pick(wx: number, wy: number) {
+    // Corners are what you fold a fitted sheet by: one showing nearby always wins.
+    const vc = this.visibleCorner(wx, wy);
+    if (vc >= 0) return vc;
+    // Otherwise, the cloth you can see under the pointer is the last triangle drawn there: take
+    // the nearest of its points.
+    const { x, y } = this;
+    for (let n = this.order.length - 1; n >= 0; n--) {
+      const t = this.order[n];
+      const a = this.ta[t];
+      const b = this.tb[t];
+      const c = this.tc[t];
+      const s0 = (x[b] - x[a]) * (wy - y[a]) - (y[b] - y[a]) * (wx - x[a]);
+      const s1 = (x[c] - x[b]) * (wy - y[b]) - (y[c] - y[b]) * (wx - x[b]);
+      const s2 = (x[a] - x[c]) * (wy - y[c]) - (y[a] - y[c]) * (wx - x[c]);
+      if (!((s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0))) continue;
+      let best = a;
+      let bd = Infinity;
+      for (const k of [a, b, c]) {
+        const d = Math.hypot(x[k] - wx, y[k] - wy);
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      }
+      return best;
+    }
+    // Not on the cloth: the nearest point within reach, higher layers first. (Corners that
+    // show were handled above; a buried one isn't pulled out from here either.)
     let best = -1;
     let bestScore = -Infinity;
     for (let k = 0; k < N; k++) {
       const d = Math.hypot(this.x[k] - wx, this.y[k] - wy);
       if (d < GRAB) {
-        const isC = this.corners.includes(k);
-        const sc = this.pointZ(k) * 1000 - d + (isC ? (d < 24 ? 1e6 : 12) : 0);
+        const sc = this.pointZ(k) * 1000 - d;
         if (sc > bestScore) {
           bestScore = sc;
           best = k;
@@ -279,17 +347,9 @@ export class Sheet {
     return best;
   }
 
+  /** The corner a click here would grab (for the hover ring), or -1. */
   nearCorner(wx: number, wy: number) {
-    let best = -1;
-    let bd = GRAB;
-    for (const c of this.corners) {
-      const d = Math.hypot(this.x[c] - wx, this.y[c] - wy);
-      if (d < bd) {
-        bd = d;
-        best = c;
-      }
-    }
-    return best;
+    return this.visibleCorner(wx, wy);
   }
 
   grab(wx: number, wy: number) {
