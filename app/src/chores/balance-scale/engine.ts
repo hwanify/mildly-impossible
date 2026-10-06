@@ -1,7 +1,11 @@
 // "Balance the Scale": a big beam balance in the middle of the room. Drag things from the tray onto
 // either pan, from an ant to a blue whale. Every single thing weighs a little differently from the
 // last one of its kind, nothing shows its exact weight, and "level" means within half an ant.
+// The pans and everything on them are rigid bodies (planck.js, loaded lazily by the page and handed
+// in with attach()); whatever slides off and drops past the floor is gone.
 // Pure module, SSR safe (no globals at top level).
+import type * as Planck from "planck";
+
 export const W = 1000;
 export const H = 640;
 
@@ -36,12 +40,22 @@ export const KINDS: Record<Kind, Spec> = {
 };
 export const ORDER: Kind[] = ["ant", "rice", "paperclip", "egg", "apple", "mug", "cat", "person", "piano", "car", "elephant", "whale", "house"];
 const POUR = new Set<Kind>(["ant", "rice", "paperclip"]);
+const S = 30; // pixels per physics metre
+const HZ = 1 / 60;
+const FLOOR = 520;
 
-export type Item = { kind: Kind; g: number };
 type Side = 0 | 1;
-type Drag = { kind: Kind; g: number | null; x: number; y: number; over: Side | null; hold: number; poured: number; next: number };
-type Rect = { side: Side; kind: Kind; x: number; y: number; w: number; h: number; f: number };
-export type BalanceEvent = { type: "drop"; kind: Kind; side: Side; first: boolean } | { type: "pour"; kind: Kind } | { type: "lift"; kind: Kind } | { type: "level" } | { type: "unlevel" } | { type: "left"; kind: Kind; side: Side };
+/** One real thing in the room: on a pan, in the air, or on its way out. */
+export type Item = { id: number; kind: Kind; g: number; x: number; y: number; a: number; body: Planck.Body | null; on: [number, number]; fixed: Side | null; fade: number; vy: number; vmax: number };
+type Held = { kind: Kind; g: number | null; x: number; y: number; over: Side | null; hold: number; poured: number; next: number };
+export type BalanceEvent =
+  | { type: "drop"; kind: Kind; first: boolean }
+  | { type: "pour"; kind: Kind }
+  | { type: "lift"; kind: Kind }
+  | { type: "level" }
+  | { type: "unlevel" }
+  | { type: "left"; kind: Kind }
+  | { type: "fell"; kind: Kind };
 
 function rng(seed: number) {
   let s = seed >>> 0 || 17;
@@ -56,7 +70,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 /** Drawn size (the longer side) of a kind, on a log scale from ant to house. */
 export function sizeOf(kind: Kind) {
-  return 14 + 14 * Math.log10(KINDS[kind].g / 0.003);
+  return 10 + 12 * Math.log10(KINDS[kind].g / 0.003);
 }
 
 export function fmtMass(g: number) {
@@ -72,8 +86,8 @@ export function fmtMass(g: number) {
 }
 
 // Precise sums: add small numbers first.
-function total(items: Item[]) {
-  const v = items.map((i) => i.g).sort((a, b) => a - b);
+function total(v: number[]) {
+  v.sort((a, b) => a - b);
   let s = 0;
   let c = 0;
   for (const x of v) {
@@ -85,23 +99,107 @@ function total(items: Item[]) {
   return s;
 }
 
+// The collider for each kind, in pixels around the middle of its drawn box.
+function outline(kind: Kind, w: number, h: number): { circle: number } | { poly: [number, number][] } {
+  const box = (bw = w, bh = h): [number, number][] => [
+    [-bw / 2, -bh / 2],
+    [bw / 2, -bh / 2],
+    [bw / 2, bh / 2],
+    [-bw / 2, bh / 2],
+  ];
+  const oct = (c: number): [number, number][] => {
+    const x = w / 2;
+    const y = h / 2;
+    return [
+      [-x + c, -y],
+      [x - c, -y],
+      [x, -y + c],
+      [x, y - c * 0.3],
+      [x - c * 0.3, y],
+      [-x + c * 0.3, y],
+      [-x, y - c * 0.3],
+      [-x, -y + c],
+    ];
+  };
+  const ellipse = (): [number, number][] => Array.from({ length: 8 }, (_, i) => [(Math.cos((i * Math.PI) / 4) * w) / 2, (Math.sin((i * Math.PI) / 4) * h) / 2]);
+  switch (kind) {
+    case "apple":
+      return { circle: Math.min(w, h) / 2 };
+    case "rice":
+    case "egg":
+      return { poly: ellipse() };
+    case "whale":
+      // rounder underneath than on top, so things can stand on its back
+      return {
+        poly: [
+          [-w / 2, h * 0.05],
+          [-w * 0.36, -h * 0.4],
+          [w * 0.2, -h * 0.42],
+          [w / 2, -h * 0.1],
+          [w / 2, h * 0.2],
+          [w * 0.2, h / 2],
+          [-w * 0.3, h / 2],
+          [-w * 0.47, h * 0.3],
+        ],
+      };
+    case "cat":
+    case "elephant":
+      return { poly: oct(Math.min(w, h) * 0.32) };
+    case "car":
+      return { poly: oct(Math.min(w, h) * 0.45) };
+    case "person":
+      return { poly: box(w * 0.84, h) };
+    case "house":
+      return {
+        poly: [
+          [-w / 2, h / 2],
+          [-w / 2, -h * 0.06],
+          [0, -h / 2],
+          [w / 2, -h * 0.06],
+          [w / 2, h / 2],
+        ],
+      };
+    default:
+      return { poly: box() };
+  }
+}
+
 export class Balance {
-  pans: [Item[], Item[]] = [[], []];
+  items: Item[] = [];
   sums: [number, number] = [0, 0];
+  counts: [number, number] = [0, 0];
   theta = 0;
   omega = 0;
-  swing: [number, number] = [0, 0];
-  swingV: [number, number] = [0, 0];
-  drag: Drag | null = null;
+  drag: Held | null = null;
   hover: { x: number; y: number } | null = null;
   level = false;
   seen = new Set<Kind>();
   private rand: () => number;
-  private rects: Rect[] = [];
-  private bump: [number, number] = [0, 0];
+  private pl: typeof Planck | null = null;
+  private world: Planck.World | null = null;
+  private panBodies: Planck.Body[] = [];
+  private time = 0;
+  private acc = 0;
+  private nextId = 1;
+  private fellSaid = false;
 
   constructor(seed: number) {
     this.rand = rng(seed);
+  }
+
+  /** Bring in the physics (loaded lazily by the page). */
+  attach(pl: typeof Planck) {
+    this.pl = pl;
+    const world = (this.world = new pl.World({ gravity: { x: 0, y: 26 } }));
+    for (const s of [0, 1] as const) {
+      const p = this.panAt(s);
+      const b = world.createBody({ type: "kinematic", position: { x: p.x / S, y: p.y / S } });
+      const half = PAN_W / 2;
+      // the plate is thicker underneath than it looks, so nothing small slips through it
+      b.createFixture(new pl.Box(half / S, 12 / S, { x: 0, y: 12 / S }, 0), { friction: 0.9 });
+      for (const dx of [-1, 1]) b.createFixture(new pl.Box(3 / S, 7 / S, { x: (dx * (half - 3)) / S, y: -6 / S }, 0), { friction: 0.9 });
+      this.panBodies.push(b);
+    }
   }
 
   /** One real object of a kind: never quite the same weight twice. */
@@ -118,42 +216,100 @@ export class Balance {
     return this.sums[0] - this.sums[1];
   }
   get count() {
-    return this.pans[0].length + this.pans[1].length;
+    return this.counts[0] + this.counts[1];
   }
   get both() {
-    return this.pans[0].length > 0 && this.pans[1].length > 0;
+    return this.counts[0] > 0 && this.counts[1] > 0;
   }
 
-  private recount() {
-    this.sums = [total(this.pans[0]), total(this.pans[1])];
-  }
-
-  add(side: Side, kind: Kind, g = this.make(kind)) {
-    this.pans[side].push({ kind, g });
-    this.recount();
-    // a little knock, more for heavy things relative to what's already there
-    const all = this.sums[0] + this.sums[1];
-    const k = clamp(g / (all + 1e-9), 0, 1);
-    this.omega += (side === 0 ? -1 : 1) * 0.6 * k;
-    this.swingV[side] += (this.rand() - 0.5) * 0.4 * Math.sqrt(k);
-    this.bump[side] = Math.min(1, this.bump[side] + 0.4 * Math.sqrt(k) + 0.05);
-  }
-
-  private takeOne(side: Side, kind: Kind): number | null {
-    const list = this.pans[side];
-    for (let i = list.length - 1; i >= 0; i--)
-      if (list[i].kind === kind) {
-        const [it] = list.splice(i, 1);
-        this.recount();
-        return it.g;
-      }
+  private onSide(it: Item): Side | null {
+    if (it.fade > 0) return null;
+    if (it.fixed !== null) return it.fixed;
+    if (!it.body) return null;
+    const t0 = this.time - it.on[0];
+    const t1 = this.time - it.on[1];
+    if (t0 < 0.25 && t0 <= t1) return 0;
+    if (t1 < 0.25) return 1;
     return null;
   }
 
-  reset() {
-    this.pans = [[], []];
+  private recount() {
+    const v: [number[], number[]] = [[], []];
+    for (const it of this.items) {
+      const s = this.onSide(it);
+      if (s !== null) v[s].push(it.g);
+    }
+    this.counts = [v[0].length, v[1].length];
+    this.sums = [total(v[0]), total(v[1])];
+  }
+
+  /** Put a thing into the world at (x, y), lifted until it is clear of everything else. */
+  spawn(kind: Kind, x: number, y: number, g = this.make(kind)): Item {
+    const it: Item = { id: this.nextId++, kind, g, x, y, a: 0, body: null, on: [-9, -9], fixed: null, fade: 0, vy: 0, vmax: 0 };
+    const pl = this.pl;
+    const world = this.world;
+    if (pl && world) {
+      const { w, h } = dims(kind);
+      const hw = w / 2 / S;
+      const hh = h / 2 / S;
+      let cy = y / S;
+      const cx = x / S;
+      for (let i = 0; i < 300; i++) {
+        let hit = false;
+        world.queryAABB({ lowerBound: { x: cx - hw + 0.02, y: cy - hh + 0.02 }, upperBound: { x: cx + hw - 0.02, y: cy + hh - 0.02 } }, () => {
+          hit = true;
+          return false;
+        });
+        if (!hit) break;
+        cy -= 3 / S;
+      }
+      const body = world.createBody({ type: "dynamic", position: { x: cx, y: cy }, angularDamping: 0.4, linearDamping: 0.05 });
+      const shape = outline(kind, w, h);
+      const pm = 1 + 3 * Math.log10(KINDS[kind].g / 0.003); // physics mass, squashed so a whale can sit on an ant
+      let area: number;
+      if ("circle" in shape) {
+        area = Math.PI * (shape.circle / S) ** 2;
+        body.createFixture(new pl.Circle(shape.circle / S), { density: pm / area, friction: 0.8, restitution: 0.02 });
+      } else {
+        const pts = shape.poly.map(([px, py]) => ({ x: px / S, y: py / S }));
+        area = 0;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[(i + 1) % pts.length];
+          area += a.x * b.y - b.x * a.y;
+        }
+        area = Math.abs(area) / 2;
+        body.createFixture(new pl.Polygon(pts), { density: pm / area, friction: 0.8, restitution: 0.02 });
+      }
+      body.setUserData(it);
+      it.body = body;
+      // a terminal speed, so small things never move more than part of their own thickness per step
+      it.vmax = clamp((Math.min(w, h) / S) * 40, 4, 16);
+      it.y = cy * S;
+    }
+    this.items.push(it);
+    return it;
+  }
+
+  /** For still frames without physics: a thing resting on a pan at an offset from its middle. */
+  place(side: Side, kind: Kind, g: number, dx: number, dy: number, a = 0) {
+    const p = this.panAt(side);
+    const { h } = dims(kind);
+    this.items.push({ id: this.nextId++, kind, g, x: p.x + dx, y: p.y - h / 2 - dy, a, body: null, on: [-9, -9], fixed: side, fade: 0, vy: 0, vmax: 0 });
     this.recount();
+  }
+
+  private vanish(it: Item) {
+    if (it.body && this.world) this.world.destroyBody(it.body);
+    it.body = null;
+    it.fade = 1;
+  }
+
+  reset() {
+    for (const it of this.items) if (it.body && this.world) this.world.destroyBody(it.body);
+    this.items = [];
     this.drag = null;
+    this.recount();
     this.omega += (this.rand() - 0.5) * 0.1;
   }
 
@@ -175,7 +331,7 @@ export class Balance {
     return `${side} is heavier by about ${what}.`;
   }
 
-  // ---------- layout ----------
+  // ---------- geometry ----------
 
   private beamEnd(side: Side) {
     const s = side === 0 ? -1 : 1;
@@ -183,8 +339,7 @@ export class Balance {
   }
   private panAt(side: Side) {
     const e = this.beamEnd(side);
-    const a = this.swing[side];
-    return { x: e.x + Math.sin(a) * STRING, y: e.y + Math.cos(a) * STRING };
+    return { x: e.x, y: e.y + STRING };
   }
 
   private trayRects() {
@@ -192,57 +347,6 @@ export class Balance {
     const slot = 70;
     const x0 = W / 2 - (n * slot) / 2;
     return ORDER.map((k, i) => ({ kind: k, x: x0 + i * slot, y: TRAY_Y + 6, w: slot, h: H - TRAY_Y - 12 }));
-  }
-
-  private groups(side: Side) {
-    const counts = new Map<Kind, number>();
-    for (const it of this.pans[side]) counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => KINDS[b[0]].g - KINDS[a[0]].g);
-  }
-
-  // Groups piled on a pan, biggest at the bottom, in rows. A tall pile shrinks to fit under the ceiling.
-  private layout(side: Side) {
-    const p = this.panAt(side);
-    const groups = this.groups(side);
-    const maxH = Math.min(270, p.y - 24);
-    let f = 1;
-    for (let tries = 0; ; tries++) {
-      const { rects, height } = this.pack(p, groups, f, side);
-      if (height <= maxH || tries > 12) return rects;
-      f *= 0.86;
-    }
-  }
-
-  private pack(p: { x: number; y: number }, groups: [Kind, number][], f: number, side: Side) {
-    const out: Rect[] = [];
-    const maxW = PAN_W - 26;
-    let row: Rect[] = [];
-    let rowW = 0;
-    let y = p.y - 6;
-    const flush = () => {
-      if (!row.length) return;
-      const h = Math.max(...row.map((r) => r.h));
-      let x = p.x - rowW / 2;
-      for (const r of row) {
-        r.x = x;
-        r.y = y - r.h;
-        x += r.w + 6 * f;
-        out.push(r);
-      }
-      y -= h + 2;
-      row = [];
-      rowW = 0;
-    };
-    for (const [kind, n] of groups) {
-      const { w, h } = dims(kind);
-      // small things get their count beside them, not on top
-      const ww = (w + (n > 1 ? (w < 40 ? 34 : 8) : 0)) * f;
-      if (row.length && rowW + 6 * f + ww > maxW) flush();
-      row.push({ side, kind, x: 0, y: 0, w: ww, h: (h + (n > 1 ? 4 : 0)) * f, f });
-      rowW += (row.length > 1 ? 6 * f : 0) + ww;
-    }
-    flush();
-    return { rects: out, height: p.y - 6 - y };
   }
 
   private sideAt(x: number, y: number): Side | null {
@@ -253,18 +357,26 @@ export class Balance {
   // ---------- input ----------
 
   cursorAt(x: number, y: number): "grab" | "default" {
-    if (this.trayHit(x, y) || this.rectHit(x, y)) return "grab";
-    return "default";
+    return this.trayHit(x, y) || this.itemAt(x, y) ? "grab" : "default";
   }
   private trayHit(x: number, y: number) {
     return this.trayRects().find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) ?? null;
   }
-  private rectHit(x: number, y: number) {
-    for (let i = this.rects.length - 1; i >= 0; i--) {
-      const r = this.rects[i];
-      if (x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4) return r;
-    }
-    return null;
+  private itemAt(x: number, y: number): Item | null {
+    const world = this.world;
+    if (!world) return null;
+    const p = { x: x / S, y: y / S };
+    let found: Item | null = null;
+    const r = 4 / S;
+    world.queryAABB({ lowerBound: { x: p.x - r, y: p.y - r }, upperBound: { x: p.x + r, y: p.y + r } }, (f) => {
+      const it = f.getBody().getUserData() as Item | null;
+      if (!it) return true;
+      // a little slack for tiny things
+      const ok = f.testPoint(p) || dims(it.kind).w < 24;
+      if (ok) found = it;
+      return !ok;
+    });
+    return found;
   }
 
   down(x: number, y: number): BalanceEvent | null {
@@ -273,13 +385,13 @@ export class Balance {
       this.drag = { kind: t.kind, g: null, x, y, over: null, hold: 0, poured: 0, next: 0 };
       return null;
     }
-    const r = this.rectHit(x, y);
-    if (r) {
-      const g = this.takeOne(r.side, r.kind);
-      if (g === null) return null;
-      this.omega += (r.side === 0 ? 1 : -1) * 0.2 * clamp(g / (this.sums[0] + this.sums[1] + g), 0, 1);
-      this.drag = { kind: r.kind, g, x, y, over: r.side, hold: 0, poured: 0, next: 0 };
-      return { type: "lift", kind: r.kind };
+    const it = this.itemAt(x, y);
+    if (it) {
+      if (it.body && this.world) this.world.destroyBody(it.body);
+      this.items = this.items.filter((o) => o !== it);
+      this.recount();
+      this.drag = { kind: it.kind, g: it.g, x, y, over: this.sideAt(x, y), hold: 0, poured: 0, next: 0 };
+      return { type: "lift", kind: it.kind };
     }
     return null;
   }
@@ -300,13 +412,13 @@ export class Balance {
   up(): BalanceEvent | null {
     const d = this.drag;
     this.drag = null;
-    if (!d || d.over === null) return null;
-    // small things that were being poured just stop
+    // let go over the tray: it goes back
+    if (!d || d.y > TRAY_Y) return null;
     if (d.poured > 0) return null;
     const first = !this.seen.has(d.kind);
     this.seen.add(d.kind);
-    this.add(d.over, d.kind, d.g ?? undefined);
-    return { type: "drop", kind: d.kind, side: d.over, first };
+    this.spawn(d.kind, d.x, d.y, d.g ?? undefined);
+    return { type: "drop", kind: d.kind, first };
   }
 
   leave() {
@@ -315,16 +427,17 @@ export class Balance {
 
   step(dt: number): BalanceEvent[] {
     const out: BalanceEvent[] = [];
+    this.time += dt;
     // pour tiny things while held over a pan: faster the longer you hold
     const d = this.drag;
     if (d && d.over !== null && d.g === null && POUR.has(d.kind)) {
       d.hold += dt;
       if (d.hold > 0.35) {
-        const rate = Math.min(60, 4 + (d.hold - 0.35) * 22);
+        const rate = Math.min(30, 4 + (d.hold - 0.35) * 12);
         d.next -= dt;
         let n = 0;
-        while (d.next <= 0 && n < 6) {
-          this.add(d.over, d.kind);
+        while (d.next <= 0 && n < 3) {
+          this.spawn(d.kind, d.x + (this.rand() - 0.5) * 16, d.y);
           d.poured++;
           d.next += 1 / rate;
           n++;
@@ -332,44 +445,88 @@ export class Balance {
         if (n) {
           if (!this.seen.has(d.kind)) {
             this.seen.add(d.kind);
-            out.push({ type: "drop", kind: d.kind, side: d.over, first: true });
+            out.push({ type: "drop", kind: d.kind, first: true });
           }
           out.push({ type: "pour", kind: d.kind });
         }
       }
     }
+    // physics, in fixed steps; the pans follow the beam
+    const world = this.world;
+    if (world) {
+      this.acc = Math.min(this.acc + dt, HZ * 4);
+      while (this.acc >= HZ) {
+        this.acc -= HZ;
+        for (const s of [0, 1] as const) {
+          const b = this.panBodies[s];
+          const p = this.panAt(s);
+          const q = b.getPosition();
+          b.setLinearVelocity({ x: (p.x / S - q.x) / HZ, y: (p.y / S - q.y) / HZ });
+        }
+        world.step(HZ, 10, 6);
+        for (const it of this.items) {
+          if (!it.body) continue;
+          const v = it.body.getLinearVelocity();
+          const sp = Math.hypot(v.x, v.y);
+          if (sp > it.vmax) it.body.setLinearVelocity({ x: (v.x * it.vmax) / sp, y: (v.y * it.vmax) / sp });
+        }
+        this.beamStep(HZ);
+      }
+      // who is resting on which pan, through whatever they are resting on
+      for (const s of [0, 1] as const) {
+        const seen = new Set<Planck.Body>([this.panBodies[s]]);
+        const queue = [this.panBodies[s]];
+        while (queue.length) {
+          const b = queue.pop()!;
+          for (let e = b.getContactList(); e; e = e.next) {
+            if (!e.contact.isTouching() || !e.other || seen.has(e.other)) continue;
+            const it = e.other.getUserData() as Item | null;
+            if (!it) continue;
+            seen.add(e.other);
+            it.on[s] = this.time;
+            queue.push(e.other);
+          }
+        }
+      }
+      for (const it of this.items) {
+        if (!it.body) continue;
+        const p = it.body.getPosition();
+        it.x = p.x * S;
+        it.y = p.y * S;
+        it.a = it.body.getAngle();
+        // off the edge and down past the floor: gone
+        if (it.y > FLOOR + 10 || it.x < -150 || it.x > W + 150) {
+          it.vy = it.body.getLinearVelocity().y * S;
+          this.vanish(it);
+          if (!this.fellSaid) {
+            this.fellSaid = true;
+            out.push({ type: "fell", kind: it.kind });
+          }
+        }
+      }
+    } else this.beamStep(dt);
+    // the vanishing
+    for (const it of this.items)
+      if (it.fade > 0) {
+        it.fade -= dt * 2.2;
+        it.y += it.vy * dt;
+        it.vy += 600 * dt;
+      }
+    this.items = this.items.filter((it) => it.fade > 0 || it.body || it.fixed !== null);
+    this.recount();
     // the living things do not stay put forever
     for (const s of [0, 1] as const) {
-      const list = this.pans[s];
-      let ants = 0;
-      let cats = 0;
-      for (const it of list) {
-        if (it.kind === "ant") ants++;
-        else if (it.kind === "cat") cats++;
-      }
-      const who: Kind | null = ants && this.rand() < ants * 0.002 * dt ? "ant" : cats && this.rand() < cats * 0.01 * dt ? "cat" : null;
+      const here = this.items.filter((it) => this.onSide(it) === s && (it.kind === "ant" || it.kind === "cat"));
+      const ants = here.filter((it) => it.kind === "ant");
+      const cats = here.filter((it) => it.kind === "cat");
+      const who = ants.length && this.rand() < ants.length * 0.002 * dt ? ants : cats.length && this.rand() < cats.length * 0.01 * dt ? cats : null;
       if (who) {
-        const idx = list.map((it, i) => (it.kind === who ? i : -1)).filter((i) => i >= 0);
-        const i = idx[Math.floor(this.rand() * idx.length)];
-        const [gone] = list.splice(i, 1);
+        const it = who[Math.floor(this.rand() * who.length)];
+        it.vy = -40;
+        this.vanish(it);
         this.recount();
-        this.omega += (s === 0 ? 1 : -1) * 0.3 * clamp(gone.g / (this.sums[0] + this.sums[1] + gone.g), 0, 1);
-        out.push({ type: "left", kind: who, side: s });
+        out.push({ type: "left", kind: it.kind });
       }
-    }
-    // the beam: a damped spring towards where the weights put it
-    const all = this.sums[0] + this.sums[1];
-    const target = all > 0 ? -MAX_A * Math.tanh((GAIN * this.diff) / all) : 0;
-    const k = 26;
-    const c = 3.2;
-    this.omega += (-(this.theta - target) * k - this.omega * c) * dt;
-    this.theta = clamp(this.theta + this.omega * dt, -MAX_A - 0.04, MAX_A + 0.04);
-    // pans swing a little from the beam's motion
-    for (const s of [0, 1] as const) {
-      const acc = (s === 0 ? 1 : -1) * this.omega * 0.12;
-      this.swingV[s] += (-this.swing[s] * 9 - this.swingV[s] * 1.6 - acc) * dt;
-      this.swing[s] = clamp(this.swing[s] + this.swingV[s] * dt, -0.25, 0.25);
-      this.bump[s] = Math.max(0, this.bump[s] - dt * 3);
     }
     const lvl = this.both && Math.abs(this.diff) < LEVEL;
     if (lvl !== this.level) {
@@ -379,11 +536,39 @@ export class Balance {
     return out;
   }
 
+  // the beam: a damped spring towards where the weights put it
+  private beamStep(dt: number) {
+    const all = this.sums[0] + this.sums[1];
+    const target = all > 0 ? -MAX_A * Math.tanh((GAIN * this.diff) / all) : 0;
+    // a heavy beam: slow and nearly critically damped, and never accelerating the pans faster than
+    // gravity, so what is on a rising pan stays on it
+    const alpha = clamp(-(this.theta - target) * 5 - this.omega * 4.4, -1.9, 1.9);
+    this.omega = clamp(this.omega + alpha * dt, -0.7, 0.7);
+    this.theta = clamp(this.theta + this.omega * dt, -MAX_A - 0.04, MAX_A + 0.04);
+  }
+
   /** Put the beam where it would come to rest (for still frames). */
   settle() {
     const all = this.sums[0] + this.sums[1];
+    const old = this.theta;
     this.theta = all > 0 ? -MAX_A * Math.tanh((GAIN * this.diff) / all) : 0;
     this.omega = 0;
+    // fixed things ride along with their pan
+    for (const s of [0, 1] as const) {
+      const was = (() => {
+        const t = this.theta;
+        this.theta = old;
+        const p = this.panAt(s);
+        this.theta = t;
+        return p;
+      })();
+      const now = this.panAt(s);
+      for (const it of this.items)
+        if (it.fixed === s) {
+          it.x += now.x - was.x;
+          it.y += now.y - was.y;
+        }
+    }
   }
 
   // ---------- drawing ----------
@@ -392,51 +577,84 @@ export class Balance {
     const tray = opts.tray ?? true;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    // room
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, "#F7F4EE");
     g.addColorStop(1, "#EFEAE1");
     ctx.fillStyle = g;
     ctx.fillRect(-W, -H, W * 3, H * 3);
     ctx.fillStyle = "#E7DDCC";
-    ctx.fillRect(-W, 520, W * 3, H);
+    ctx.fillRect(-W, FLOOR, W * 3, H);
     ctx.fillStyle = "rgba(60,50,35,0.08)";
-    ctx.fillRect(-W, 519, W * 3, 2);
+    ctx.fillRect(-W, FLOOR - 1, W * 3, 2);
 
     this.drawStand(ctx);
-    this.rects = [];
     for (const s of [0, 1] as const) this.drawPan(ctx, s);
+    for (const it of this.items) {
+      const dm = dims(it.kind);
+      ctx.save();
+      if (it.fade > 0) ctx.globalAlpha = clamp(it.fade, 0, 1);
+      ctx.translate(it.x, it.y);
+      ctx.rotate(it.a);
+      ctx.translate(0, dm.h / 2);
+      drawKind(ctx, it.kind, dm);
+      ctx.restore();
+    }
     this.drawBeam(ctx);
     this.drawDial(ctx);
     if (tray) this.drawTray(ctx);
     const d = this.drag;
     if (d) {
-      if (d.over !== null) {
+      if (d.over !== null && d.y < TRAY_Y) {
         const p = this.panAt(d.over);
         ctx.strokeStyle = "rgba(74,95,120,0.35)";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 6]);
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y - 4, PAN_W / 2 + 10, 22, 0, 0, Math.PI * 2);
+        ctx.ellipse(p.x, p.y - 2, PAN_W / 2 + 10, 20, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
-      const { h } = dims(d.kind);
+      const dm = dims(d.kind);
       ctx.save();
       ctx.globalAlpha = 0.85;
-      ctx.translate(d.x, d.y + h / 2);
-      drawKind(ctx, d.kind, dims(d.kind));
+      ctx.translate(d.x, d.y + dm.h / 2);
+      drawKind(ctx, d.kind, dm);
       ctx.restore();
     } else if (tray && this.hover) {
       const t = this.trayHit(this.hover.x, this.hover.y);
       if (t) this.tip(ctx, t.x + t.w / 2, t.y - 8, `${KINDS[t.kind].name}, about ${fmtMass(KINDS[t.kind].g)}`);
       else {
-        const r = this.rectHit(this.hover.x, this.hover.y);
-        if (r) {
-          const n = this.pans[r.side].filter((i) => i.kind === r.kind).length;
-          this.tip(ctx, r.x + r.w / 2, r.y - 8, n > 1 ? `${n} ${KINDS[r.kind].plural}` : `${KINDS[r.kind].name}`);
-        }
+        const it = this.itemAt(this.hover.x, this.hover.y);
+        if (it) this.tip(ctx, it.x, it.y - dims(it.kind).h / 2 - 8, KINDS[it.kind].name);
       }
+    }
+  }
+
+  private drawPan(ctx: CanvasRenderingContext2D, side: Side) {
+    const e = this.beamEnd(side);
+    const p = this.panAt(side);
+    const half = PAN_W / 2;
+    ctx.strokeStyle = "#6B6A65";
+    ctx.lineWidth = 1.5;
+    for (const dx of [-half + 3, 0, half - 3]) this.line(ctx, e.x, e.y, p.x + dx, p.y - (dx ? 12 : 0));
+    ctx.fillStyle = "rgba(28,28,26,0.06)";
+    ctx.beginPath();
+    ctx.ellipse(p.x, FLOOR + 4, half * 0.8, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // the dish, the plate and its little lips
+    ctx.fillStyle = "#2E2D2A";
+    ctx.beginPath();
+    ctx.moveTo(p.x - half, p.y + 4);
+    ctx.lineTo(p.x + half, p.y + 4);
+    ctx.quadraticCurveTo(p.x + half - 10, p.y + 24, p.x, p.y + 26);
+    ctx.quadraticCurveTo(p.x - half + 10, p.y + 24, p.x - half, p.y + 4);
+    ctx.fill();
+    ctx.fillStyle = "#57554F";
+    roundRect(ctx, p.x - half, p.y, PAN_W, 6, 3);
+    ctx.fill();
+    for (const dx of [-1, 1]) {
+      roundRect(ctx, p.x + dx * (half - 3) - 3, p.y - 13, 6, 16, 2);
+      ctx.fill();
     }
   }
 
@@ -615,64 +833,6 @@ export class Balance {
     this.line(ctx, cx, cy - R - 2, cx, cy - R + 6);
   }
 
-  private drawPan(ctx: CanvasRenderingContext2D, side: Side) {
-    const e = this.beamEnd(side);
-    const p = this.panAt(side);
-    const half = PAN_W / 2;
-    // strings
-    ctx.strokeStyle = "#6B6A65";
-    ctx.lineWidth = 1.5;
-    for (const dx of [-half + 6, 0, half - 6]) this.line(ctx, e.x, e.y, p.x + dx, p.y - 2);
-    // shadow on the floor
-    ctx.fillStyle = "rgba(28,28,26,0.06)";
-    ctx.beginPath();
-    ctx.ellipse(p.x, 524, half * 0.8, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // what's on it
-    const bump = this.bump[side];
-    for (const r of this.layout(side)) {
-      const n = this.pans[side].filter((i) => i.kind === r.kind).length;
-      const d0 = dims(r.kind);
-      const dm = { w: d0.w * r.f, h: d0.h * r.f };
-      const ox = r.x;
-      ctx.save();
-      ctx.translate(0, -bump * 3);
-      for (let c = Math.min(n, 3) - 1; c >= 0; c--) {
-        ctx.save();
-        ctx.translate(ox + dm.w / 2 + c * 4 * r.f, r.y + r.h - c * 2 * r.f);
-        if (c) ctx.globalAlpha = 0.85;
-        drawKind(ctx, r.kind, dm);
-        ctx.restore();
-      }
-      if (n > 1) {
-        const label = `×${n}`;
-        ctx.font = '600 11px "Inter Tight", system-ui, sans-serif';
-        const tw = ctx.measureText(label).width + 10;
-        const small = dm.w < 40 * r.f;
-        const bx = small ? r.x + dm.w + 8 * r.f + tw / 2 - 4 : r.x + r.w - tw / 2;
-        const by = small ? r.y + r.h - 16 : r.y - 4;
-        ctx.fillStyle = "#1C1C1A";
-        roundRect(ctx, bx - tw / 2 + 4, by, tw, 16, 8);
-        ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.fillText(label, bx - tw / 2 + 9, by + 12);
-      }
-      ctx.restore();
-      this.rects.push(r);
-    }
-    // the dish
-    ctx.fillStyle = "#2E2D2A";
-    ctx.beginPath();
-    ctx.moveTo(p.x - half, p.y - 4);
-    ctx.lineTo(p.x + half, p.y - 4);
-    ctx.quadraticCurveTo(p.x + half - 10, p.y + 18, p.x, p.y + 20);
-    ctx.quadraticCurveTo(p.x - half + 10, p.y + 18, p.x - half, p.y - 4);
-    ctx.fill();
-    ctx.fillStyle = "#57554F";
-    roundRect(ctx, p.x - half - 4, p.y - 7, PAN_W + 8, 6, 3);
-    ctx.fill();
-  }
-
   private drawTray(ctx: CanvasRenderingContext2D) {
     ctx.fillStyle = "rgba(251,250,247,0.92)";
     ctx.fillRect(-W, TRAY_Y, W * 3, H);
@@ -685,7 +845,7 @@ export class Balance {
         roundRect(ctx, r.x + 3, r.y, r.w - 6, r.h, 8);
         ctx.fill();
       }
-      const s = clamp(sizeOf(r.kind) * 0.42, 14, 44);
+      const s = clamp(sizeOf(r.kind) * 0.5, 14, 44);
       const dm = fit(r.kind, s);
       ctx.save();
       ctx.translate(r.x + r.w / 2, r.y + 46 - (44 - dm.h) / 2);

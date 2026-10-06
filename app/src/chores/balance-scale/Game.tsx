@@ -63,6 +63,11 @@ export function Game() {
     if (!canvas || !ctx) return;
     const game = new Balance(Date.now());
     gameRef.current = game;
+    // the physics engine is only needed here, so it loads with the game rather than with the hub
+    let alive = true;
+    void import("planck").then((pl) => {
+      if (alive) game.attach(pl);
+    });
     let raf = 0;
     let last = performance.now();
     let lastPour = 0;
@@ -98,6 +103,8 @@ export function Game() {
           wandered.add(ev.kind);
           say(ev.kind === "ant" ? "An ant has wandered off. They do that." : "The cat has left the scale. It had other plans.");
         }
+      } else if (ev.type === "fell") {
+        say("It fell off. It's gone now.");
       } else if (ev.type === "level") {
         say("Perfectly level.");
         setLevel({ total: game.sums[0] + game.sums[1] });
@@ -148,7 +155,7 @@ export function Game() {
     };
     raf = requestAnimationFrame(frame);
     const ui = window.setInterval(() => {
-      setReadout({ left: game.pans[0].length ? fmtMass(game.sums[0]) : "empty", right: game.pans[1].length ? fmtMass(game.sums[1]) : "empty", text: game.describe(), count: game.count });
+      setReadout({ left: game.counts[0] ? fmtMass(game.sums[0]) : "empty", right: game.counts[1] ? fmtMass(game.sums[1]) : "empty", text: game.describe(), count: game.count });
       const d = Math.abs(game.diff);
       setDone((prev) => {
         const next = [prev[0] || game.both, prev[1] || (game.both && d < 1000), prev[2] || (game.both && d < 1), prev[3] || game.level];
@@ -156,6 +163,7 @@ export function Game() {
       });
     }, 120);
     return () => {
+      alive = false;
       cancelAnimationFrame(raf);
       window.clearInterval(ui);
       ro.disconnect();
@@ -186,7 +194,7 @@ export function Game() {
       <h1 className="serif play-title">Balance the Scale</h1>
       <p className="play-lede">
         Drag things from the tray onto either pan until the two sides weigh exactly the same. No two ants weigh the same.
-        Hold small things over a pan to pour them. Drag something off a pan to take it back.
+        Hold small things over a pan to pour them. Anything that falls off is gone.
       </p>
       <div className="stage stage-room balance-scale-stage">
         <canvas ref={canvasRef} onContextMenu={(e) => e.preventDefault()} aria-label="A large beam balance with two pans, and a tray of things to weigh: from an ant to a house." />
