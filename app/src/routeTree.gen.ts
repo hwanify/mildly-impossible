@@ -11,8 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as MugRouteImport } from './routes/mug'
-import { Route as FittedSheetRouteImport } from './routes/fitted-sheet'
+import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -25,14 +24,9 @@ const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   path: '/robots.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MugRoute = MugRouteImport.update({
-  id: '/mug',
-  path: '/mug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FittedSheetRoute = FittedSheetRouteImport.update({
-  id: '/fitted-sheet',
-  path: '/fitted-sheet',
+const SlugRoute = SlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -43,39 +37,34 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/fitted-sheet': typeof FittedSheetRoute
-  '/mug': typeof MugRoute
+  '/$slug': typeof SlugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/fitted-sheet': typeof FittedSheetRoute
-  '/mug': typeof MugRoute
+  '/$slug': typeof SlugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/fitted-sheet': typeof FittedSheetRoute
-  '/mug': typeof MugRoute
+  '/$slug': typeof SlugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
+  fullPaths: '/' | '/$slug' | '/robots.txt' | '/sitemap.xml'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
-  id:
-    '__root__' | '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
+  to: '/' | '/$slug' | '/robots.txt' | '/sitemap.xml'
+  id: '__root__' | '/' | '/$slug' | '/robots.txt' | '/sitemap.xml'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FittedSheetRoute: typeof FittedSheetRoute
-  MugRoute: typeof MugRoute
+  SlugRoute: typeof SlugRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
 }
@@ -96,18 +85,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/mug': {
-      id: '/mug'
-      path: '/mug'
-      fullPath: '/mug'
-      preLoaderRoute: typeof MugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/fitted-sheet': {
-      id: '/fitted-sheet'
-      path: '/fitted-sheet'
-      fullPath: '/fitted-sheet'
-      preLoaderRoute: typeof FittedSheetRouteImport
+    '/$slug': {
+      id: '/$slug'
+      path: '/$slug'
+      fullPath: '/$slug'
+      preLoaderRoute: typeof SlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -122,8 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FittedSheetRoute: FittedSheetRoute,
-  MugRoute: MugRoute,
+  SlugRoute: SlugRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
 }
