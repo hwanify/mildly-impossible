@@ -1,0 +1,5 @@
+.balance-scale-stage canvas{cursor:default}
+.balance-scale-meter{top:14px;right:16px;bottom:auto;display:flex;flex-direction:column;gap:2px;text-align:right;max-width:46%}
+.balance-scale-meter b{color:var(--ink);font-weight:600}
+.balance-scale-off{color:var(--ink);font-size:12.5px}
+@media (max-width:640px){.balance-scale-meter{top:auto;bottom:calc(13% + 6px);left:8px;right:8px;max-width:none;font-size:11px;padding:4px 8px;text-align:left}.balance-scale-off{font-size:11px}}

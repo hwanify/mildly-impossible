@@ -1,7 +1,9 @@
 // "Peel the Price Sticker": top-down view of a new hardcover with a price sticker on it.
 // The sticker is a grid of small cells. Peeling is a paper fold: the corner you hold (C) is folded
 // over to the pointer (P), and every cell on C's side of the perpendicular bisector lifts off.
-// Peel too fast and it tears or leaves glue. Every round rolls a different sticker: kind, size,
+// Peel too fast and it tears or leaves glue. The wider the strip coming up at once, the slower you have
+// to go, so working in from several edges beats one big pull. A thin film of the strongest glue always
+// stays behind, and rubbing it with a thumb only goes so far. Every round rolls a different sticker: kind, size,
 // angle, position, which corner is lifted (if any), extra stickers on top, hidden glue, and
 // sometimes an older sticker underneath. Pure module, SSR safe (no globals at top level).
 export const W = 1000;
@@ -16,8 +18,11 @@ const TS = 3; // texture resolution per local unit
 const STUCK = 1;
 const FLAP = 2;
 const GONE = 3;
+const LOOSE = 4; // lifted once, laid back down: no glue left under it
 const GLUE = 1;
 const FUZZ = 2;
+const LINT = 3; // glue rubbed into little grey balls
+const WIDE = 16; // a peel front up to this many cells long is fine; past it, it gets touchy
 
 export type Kind = "paper" | "vinyl" | "security" | "round" | "aged";
 type Props = { name: string; intro: string; glueAt: number; tearAt: number; tearMul: number; yank: number; residue: number; fuzz: boolean };
@@ -43,13 +48,30 @@ const BADGES: [string, string, string][] = [
   ["SIGNED", "COPY", "#1C1C1A"],
 ];
 
-export type StickerState = "loose" | "held" | "bare" | "scratch" | "done";
-export type StickerEvent = "grab" | "release" | "slip" | "tear" | "free" | "glue" | "stubborn" | "middle" | "busy" | "scratch" | "lift" | "under" | "done";
+export type StickerState = "loose" | "held" | "bare" | "scratch" | "rub" | "rubbing" | "done";
+export type StickerEvent =
+  | "grab"
+  | "release"
+  | "slip"
+  | "tear"
+  | "free"
+  | "glue"
+  | "stubborn"
+  | "middle"
+  | "scratch"
+  | "lift"
+  | "under"
+  | "wide"
+  | "strain"
+  | "rub"
+  | "pill"
+  | "done";
 type V = { x: number; y: number };
 type Shape = { round: boolean; x: number; y: number; w: number; h: number };
 type Badge = { x: number; y: number; r: number; text: string; sub: string; color: string };
 type Blob = { x: number; y: number; r: number; s: number };
 type Tex = { c: CanvasImageSource; g: CanvasRenderingContext2D };
+type Glyph = { ch: string; x0: number; x1: number; y0: number; y1: number };
 type Layer = {
   kind: Kind;
   shape: Shape;
@@ -62,6 +84,7 @@ type Layer = {
   lift: { c: V; n0: V } | null;
   bars: number[];
   tex: Tex | null;
+  glyphs: Glyph[]; // where each character of the price is printed, filled in with the texture
 };
 type Flyer = { cells: number[]; c: V; d: V; r: number; t: number; tex: Tex | null; shape: Shape; vinyl: boolean };
 type Scrap = { x: number; y: number; a: number; w: number; h: number };
@@ -165,6 +188,8 @@ export class Sticker {
   res: Uint8Array;
   glue: Float32Array;
   weak: Uint8Array;
+  film: Uint8Array; // the strongest glue: it always stays on the book
+  fuzzOf: Uint8Array; // which layer a bit of paper fuzz came from (its print shows through)
   total = 0;
   layerTotal = 0;
   stuck = 0;
@@ -181,6 +206,8 @@ export class Sticker {
   stress = 0;
   pieces = 0;
   scratches = 0;
+  edges = 0; // edges a flap was lifted from
+  rubbed = 0;
   started = false;
   glued = false;
   claimed = 0; // cells lifted in the last step (for sound)
@@ -198,6 +225,9 @@ export class Sticker {
   private weave: CanvasPattern | null = null;
   private stubborn = 0; // 0 not yet, 1 just hit, 2 said
   private stubbornHit = false;
+  private wideSaid = false;
+  private strainSaid = false;
+  private pillSaid = false;
 
   constructor(seed: number, opts: { thumb?: boolean } = {}) {
     const rand = (this.rand = rng(seed));
@@ -241,6 +271,8 @@ export class Sticker {
     this.res = new Uint8Array(n);
     this.glue = new Float32Array(n);
     this.weak = new Uint8Array(n);
+    this.film = new Uint8Array(n);
+    this.fuzzOf = new Uint8Array(n);
     this.front_ = new Uint8Array(n);
     this.fibres = new Float32Array(n * 2).map(() => rand() * Math.PI);
 
@@ -272,7 +304,8 @@ export class Sticker {
     }
     const r = this.rot(sc);
     this.origin = { x: wc.x - r.x, y: wc.y - r.y };
-    this.view = { x: clamp(wc.x + nw.x * reach * 0.5, 330, 670), y: clamp(wc.y + nw.y * reach * 0.5, 215, 425) };
+    // any edge can be peeled, so small screens centre on the sticker itself
+    this.view = { x: clamp(wc.x, 330, 670), y: clamp(wc.y, 215, 425) };
     this.activate(0);
   }
 
@@ -347,7 +380,7 @@ export class Sticker {
     const pct = badges.find((b) => b.text.startsWith("−"));
     const full = price * (pct ? 1 / (1 - parseInt(pct.text.slice(1)) / 100) : 1.3 + rand() * 0.4);
     const was = fresh && (pct || rand() < 0.4) ? money(Math.ceil(full) - (rand() < 0.6 ? 0.01 : 0)) : null;
-    return { kind, shape, price: money(price), was, shop: SHOPS[Math.floor(rand() * SHOPS.length)], badges, blobs, cuts, lift, bars, tex: null };
+    return { kind, shape, price: money(price), was, shop: SHOPS[Math.floor(rand() * SHOPS.length)], badges, blobs, cuts, lift, bars, tex: null, glyphs: [] };
   }
 
   /** Sticker kind of the layer in play. */
@@ -373,6 +406,48 @@ export class Sticker {
   }
   get hasFlap() {
     return this.state === "loose" || this.state === "held";
+  }
+  get rubbing() {
+    return this.state === "rub" || this.state === "rubbing";
+  }
+  /** How much longer the peel front is than a comfortable corner. */
+  get wide() {
+    return clamp(this.front / WIDE, 1, 4);
+  }
+  /** Peel speeds where glue starts staying behind and where it tears, for the strip coming up right now. */
+  get glueAt() {
+    return this.props.glueAt / this.wide ** 0.4;
+  }
+  get tearAt() {
+    return this.props.tearAt / this.wide ** 0.7;
+  }
+  get lint() {
+    let n = 0;
+    for (let k = 0; k < this.res.length; k++) if (this.res[k] === LINT) n++;
+    return n;
+  }
+  /** The part of a price that can still be read through what's left on the cover, e.g. ".99". */
+  get readable() {
+    let best = "";
+    this.layers.forEach((L, li) => {
+      const s = L.glyphs
+        .map((g) => {
+          let tot = 0;
+          let fz = 0;
+          for (let j = Math.floor(g.y0 / CELL); j <= Math.floor(g.y1 / CELL); j++)
+            for (let i = Math.floor(g.x0 / CELL); i <= Math.floor(g.x1 / CELL); i++) {
+              if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
+              const k = j * this.nx + i;
+              tot++;
+              if (this.cell[k] === STUCK || this.cell[k] === LOOSE || (this.res[k] === FUZZ && this.fuzzOf[k] === li)) fz++;
+            }
+          return tot && fz / tot > 0.45 ? g.ch : "·";
+        })
+        .join("")
+        .replace(/^·+|·+$/g, "");
+      if (s.replace(/·/g, "").length > best.replace(/·/g, "").length) best = s;
+    });
+    return best;
   }
   /** World position of the sticker's middle (for the hub thumbnail camera). */
   get middle(): V {
@@ -414,6 +489,10 @@ export class Sticker {
     this.li = li;
     const L = this.L;
     const aged = L.kind === "aged" ? 1.15 : 1;
+    const s = L.shape;
+    // the barcode is where the glue is strongest, on a round one the middle
+    const bar = s.round ? null : { x0: s.x + s.w - 78, x1: s.x + s.w - 10, y0: s.y + 10, y1: s.y + 20 + Math.min(44, s.h - 70) };
+    const mid = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
     this.stuck = 0;
     for (let k = 0; k < this.cell.length; k++) {
       const m = this.center(k);
@@ -427,17 +506,27 @@ export class Sticker {
       let g = 0.85 + this.strength(m.x / this.gw, m.y / this.gh) * 0.3;
       for (const b of L.badges) g += 0.65 * Math.exp(-((Math.hypot(m.x - b.x, m.y - b.y) / (b.r + 2)) ** 4));
       for (const b of L.blobs) g += b.s * Math.exp(-((Math.hypot(m.x - b.x, m.y - b.y) / b.r) ** 2));
+      if (bar && m.x > bar.x0 && m.x < bar.x1 && m.y > bar.y0 && m.y < bar.y1) g += 0.35;
+      if (s.round) g += 0.3 * Math.exp(-((Math.hypot(m.x - mid.x, m.y - mid.y) / (s.w * 0.18)) ** 2));
       this.glue[k] = g * aged;
       if (L.cuts.some((s) => segDist(m.x, m.y, s) < 2.3)) this.weak[k] = 1;
     }
     this.layerTotal = this.stuck;
+    // the top few percent of glue never lets go of the cover
+    const gs: number[] = [];
+    for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === STUCK) gs.push(this.glue[k]);
+    gs.sort((a, b) => a - b);
+    const q = gs[Math.floor(gs.length * 0.97)] ?? Infinity;
+    for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === STUCK) this.film[k] = this.glue[k] >= q ? 1 : 0;
     this.speed = 0;
     this.jerk = 0;
     this.stress = 0;
     this.stubborn = 0;
     this.front_.fill(0);
-    if (L.lift) this.startFlap(L.lift.c, L.lift.n0, 26);
-    else this.state = "bare";
+    if (L.lift) {
+      this.startFlap(L.lift.c, L.lift.n0, 26);
+      this.edges++;
+    } else this.state = "bare";
   }
 
   private startFlap(c: V, n0: V, reach: number) {
@@ -445,14 +534,19 @@ export class Sticker {
     this.n0 = n0;
     this.p = { x: c.x + n0.x * reach, y: c.y + n0.y * reach };
     for (let k = 0; k < this.cell.length; k++) {
-      if (this.cell[k] !== STUCK) continue;
+      const was = this.cell[k];
+      if (was !== STUCK && was !== LOOSE) continue;
       const m = this.center(k);
       if ((m.x - c.x) * n0.x + (m.y - c.y) * n0.y < reach / 2 && Math.hypot(m.x - c.x, m.y - c.y) < reach) {
         this.cell[k] = FLAP;
-        this.res[k] = 0;
-        this.stuck--;
+        if (was === STUCK) {
+          this.res[k] = 0;
+          this.stuck--;
+        }
       }
     }
+    this.wideSaid = false;
+    this.strainSaid = false;
     this.claim(this.p, false);
     this.measureFront();
     this.state = "loose";
@@ -480,7 +574,14 @@ export class Sticker {
       const j = (k - i) / nx;
       const nb = [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, j > 0 ? k - nx : -1, j < this.ny - 1 ? k + nx : -1];
       for (const q of nb) {
-        if (q < 0 || this.cell[q] !== STUCK || !inside(q)) continue;
+        if (q < 0) continue;
+        if (this.cell[q] === LOOSE) {
+          // already loosened: it just comes along
+          this.cell[q] = FLAP;
+          queue.push(q);
+          continue;
+        }
+        if (this.cell[q] !== STUCK || !inside(q)) continue;
         this.cell[q] = FLAP;
         got.push(q);
         queue.push(q);
@@ -502,21 +603,23 @@ export class Sticker {
     const inst = (a * CELL * CELL) / dt / (Math.max(this.front, 4) * CELL);
     this.speed += (inst - this.speed) * (1 - Math.exp(-dt / 0.12));
     const v = this.speed;
-    const pGlue = clamp((v - P.glueAt) / 65, 0, 1) * 0.5 * P.residue;
-    const pFuzz = P.fuzz ? clamp((v - P.tearAt) / 120, 0, 1) * 0.5 : 0;
+    const pGlue = clamp((v - this.glueAt) / 65, 0, 1) * 0.5 * P.residue;
+    const pFuzz = P.fuzz ? clamp((v - this.tearAt) / 120, 0, 1) * 0.5 : 0;
     let weak = 0;
     for (const k of got) {
       const m = this.center(k);
       const u = m.x / this.gw;
       const w = m.y / this.gh;
       const g = (this.glue[k] - 0.85) * 0.5;
-      if (this.n2(u, w) < pFuzz) this.res[k] = FUZZ;
-      else if (this.n1(u, w) < pGlue + g * pGlue) this.res[k] = GLUE;
+      if (this.n2(u, w) < pFuzz) {
+        this.res[k] = FUZZ;
+        this.fuzzOf[k] = this.li;
+      } else if (this.film[k] || this.n1(u, w) < pGlue + g * pGlue) this.res[k] = GLUE;
       if (this.weak[k]) weak++;
       if (this.glue[k] > 1.38 && !this.stubborn) this.stubbornHit = true;
     }
     // the cuts give way under any hurry
-    this.stress += weak * 0.024 * clamp(v / P.glueAt, 0.3, 2.2);
+    this.stress += weak * 0.024 * clamp(v / this.glueAt, 0.3, 2.2);
     return got;
   }
 
@@ -578,6 +681,7 @@ export class Sticker {
     for (let j = 0; j < this.ny; j++)
       for (let i = 0; i < this.nx; i++) {
         if (this.at(i, j) !== STUCK) continue;
+        // any side works, including the line where a loosened bit meets glued paper
         if (this.at(i - 1, j) === STUCK && this.at(i + 1, j) === STUCK && this.at(i, j - 1) === STUCK && this.at(i, j + 1) === STUCK) continue;
         const dd = Math.hypot((i + 0.5) * CELL - q.x, (j + 0.5) * CELL - q.y);
         if (dd < bd) {
@@ -588,30 +692,136 @@ export class Sticker {
     return best;
   }
 
+  private onCell(q: V) {
+    return this.at(Math.floor(q.x / CELL), Math.floor(q.y / CELL));
+  }
+
   cursorAt(x: number, y: number): "grab" | "default" {
     if (this.state === "done") return "default";
     const q = this.toLocal(x, y);
-    if (this.hasFlap) return this.hitFlap(q) ? "grab" : "default";
-    return this.edgeNear(q, 12) >= 0 ? "grab" : "default";
+    if (this.rubbing) return this.overBook(x, y) ? "grab" : "default";
+    if (this.hasFlap && this.hitFlap(q)) return "grab";
+    return this.onCell(q) === LOOSE || this.edgeNear(q, 12) >= 0 ? "grab" : "default";
+  }
+
+  private overBook(x: number, y: number) {
+    return x > BOOK.x0 && x < BOOK.x1 && y > BOOK.y0 && y < BOOK.y1;
+  }
+
+  /** Let go of the flap you had: it lies back down where it was, no longer stuck. */
+  private lower() {
+    if (!this.hasFlap) return;
+    for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === FLAP) this.cell[k] = LOOSE;
+    this.front_.fill(0);
+    this.front = 0;
+    this.state = "bare";
+  }
+
+  // Lift from a bit that was already loosened. No fingernail needed.
+  private grabLoose(q: V): StickerEvent {
+    let b = -1;
+    let bd = Infinity;
+    for (let k = 0; k < this.cell.length; k++) {
+      if (this.cell[k] !== LOOSE) continue;
+      const m = this.center(k);
+      const d = Math.hypot(m.x - q.x, m.y - q.y);
+      if (d < bd) {
+        bd = d;
+        b = k;
+      }
+    }
+    const at = this.center(b);
+    this.startFlap({ x: at.x, y: at.y }, this.inward(at), 14);
+    this.state = "held";
+    this.base = { ...this.p };
+    this.grabAt = q;
+    this.speed = 0;
+    this.stress = 0;
+    return "grab";
+  }
+
+  // The way into the glued paper from a point near its edge.
+  private inward(b: V): V {
+    let sx = 0;
+    let sy = 0;
+    for (let k = 0; k < this.cell.length; k++) {
+      if (this.cell[k] !== STUCK) continue;
+      const m = this.center(k);
+      if (Math.hypot(m.x - b.x, m.y - b.y) < 18) {
+        sx += m.x - b.x;
+        sy += m.y - b.y;
+      }
+    }
+    const s = this.L.shape;
+    if (Math.hypot(sx, sy) > 1) return norm({ x: sx, y: sy });
+    const to = { x: s.x + s.w / 2 - b.x, y: s.y + s.h / 2 - b.y };
+    return Math.hypot(to.x, to.y) > 1 ? norm(to) : { x: 1, y: 0 };
+  }
+
+  /** Done with the thumb: wrap it as it is. */
+  wrap() {
+    this.state = "done";
+  }
+
+  private rubAlong(a: V, b: V): StickerEvent | null {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const steps = Math.max(1, Math.ceil(len / 3));
+    const R = 8;
+    let pilled = false;
+    for (let s = 1; s <= steps; s++) {
+      const x = a.x + ((b.x - a.x) * s) / steps;
+      const y = a.y + ((b.y - a.y) * s) / steps;
+      for (let j = Math.floor((y - R) / CELL); j <= Math.floor((y + R) / CELL); j++)
+        for (let i = Math.floor((x - R) / CELL); i <= Math.floor((x + R) / CELL); i++) {
+          if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
+          if (Math.hypot((i + 0.5) * CELL - x, (j + 0.5) * CELL - y) > R) continue;
+          const k = j * this.nx + i;
+          const r = this.res[k];
+          if (r === FUZZ) {
+            if (this.rand() < 0.2) this.res[k] = 0;
+          } else if (r === GLUE) {
+            // thumbs move glue around more than they remove it
+            const roll = this.rand();
+            if (roll < 0.012) {
+              this.res[k] = LINT;
+              pilled = true;
+            } else if (!this.film[k] && roll < 0.07) this.res[k] = 0;
+          }
+        }
+    }
+    this.rubbed += len;
+    if (pilled && !this.pillSaid) {
+      this.pillSaid = true;
+      return "pill";
+    }
+    return null;
   }
 
   down(x: number, y: number): StickerEvent | null {
     if (this.state === "done") return null;
     const q = this.toLocal(x, y);
     this.ptr = q;
-    const onPaper = this.at(Math.floor(q.x / CELL), Math.floor(q.y / CELL)) === STUCK;
-    if (this.hasFlap) {
-      if (this.hitFlap(q)) {
-        this.state = "held";
-        this.started = true;
-        this.base = { ...this.p };
-        this.grabAt = q;
-        return "grab";
-      }
-      return onPaper ? "busy" : null;
+    if (this.rubbing) {
+      if (!this.overBook(x, y)) return null;
+      this.state = "rubbing";
+      return "rub";
+    }
+    const onPaper = this.onCell(q) === STUCK;
+    if (this.hasFlap && this.hitFlap(q)) {
+      this.state = "held";
+      this.started = true;
+      this.base = { ...this.p };
+      this.grabAt = q;
+      return "grab";
+    }
+    if (this.onCell(q) === LOOSE) {
+      this.lower();
+      this.started = true;
+      return this.grabLoose(q);
     }
     const e = this.edgeNear(q, 12);
     if (e >= 0) {
+      this.lower();
       this.state = "scratch";
       this.scratchAt = e;
       this.travel = 0;
@@ -625,25 +835,17 @@ export class Sticker {
   move(x: number, y: number): StickerEvent | null {
     const q = this.toLocal(x, y);
     const moved = Math.hypot(q.x - this.ptr.x, q.y - this.ptr.y);
+    const prev = this.ptr;
     this.ptr = q;
+    if (this.state === "rubbing") return this.rubAlong(prev, q);
     if (this.state !== "scratch") return null;
     this.travel += moved;
     if (this.travel < 45) return null;
     // a fingernail finally gets under it
     const b = this.center(this.scratchAt);
-    let sx = 0;
-    let sy = 0;
-    for (let k = 0; k < this.cell.length; k++) {
-      if (this.cell[k] !== STUCK) continue;
-      const m = this.center(k);
-      if (Math.hypot(m.x - b.x, m.y - b.y) < 18) {
-        sx += m.x - b.x;
-        sy += m.y - b.y;
-      }
-    }
-    const s = this.L.shape;
-    const n0 = Math.hypot(sx, sy) > 1 ? norm({ x: sx, y: sy }) : norm({ x: s.x + s.w / 2 - b.x, y: s.y + s.h / 2 - b.y });
+    const n0 = this.inward(b);
     this.startFlap({ x: b.x - n0.x * 2.5, y: b.y - n0.y * 2.5 }, n0, 14);
+    this.edges++;
     this.state = "held";
     this.base = { ...this.p };
     this.grabAt = q;
@@ -658,6 +860,7 @@ export class Sticker {
       return this.peeled < 0.97 ? "release" : null;
     }
     if (this.state === "scratch") this.state = "bare";
+    if (this.state === "rubbing") this.state = "rub";
     return null;
   }
 
@@ -706,7 +909,7 @@ export class Sticker {
       this.addScrap(f.cells.length);
       return false;
     });
-    if (this.state === "done") return out;
+    if (this.state === "done" || this.rubbing) return out;
     if (this.state === "held") {
       const target = { x: this.base.x + this.ptr.x - this.grabAt.x, y: this.base.y + this.ptr.y - this.grabAt.y };
       const p = this.constrain(target);
@@ -727,7 +930,16 @@ export class Sticker {
           this.claimed = got.length;
           const v = this.speed;
           const P = this.props;
-          this.stress = v > P.tearAt ? this.stress + ((v - P.tearAt) / 60) * 4 * P.tearMul * dt : Math.max(0, this.stress - dt * 0.9);
+          const tearAt = this.tearAt;
+          this.stress = v > tearAt ? this.stress + ((v - tearAt) / 60) * 4 * P.tearMul * dt : Math.max(0, this.stress - dt * 0.9);
+          if (!this.wideSaid && this.wide > 1.9 && got.length > 0) {
+            this.wideSaid = true;
+            out.push("wide");
+          }
+          if (!this.strainSaid && this.stress > 0.45) {
+            this.strainSaid = true;
+            out.push("strain");
+          }
           if (!hadGlue && !this.glued && this.glueCells > 0) {
             this.glued = true;
             out.push("glue");
@@ -763,13 +975,18 @@ export class Sticker {
         if (this.cell[k] === STUCK) {
           this.cell[k] = GONE;
           this.res[k] = FUZZ;
+          this.fuzzOf[k] = this.li;
         }
       this.stuck = 0;
+      // loosened bits with nothing left holding them come away by themselves
+      const loose: number[] = [];
+      for (let k = 0; k < this.cell.length; k++) if (this.cell[k] === LOOSE) loose.push(k);
+      if (loose.length) this.detach(loose);
       if (this.li + 1 < this.layers.length) {
         this.activate(this.li + 1);
         out.push("under");
       } else {
-        this.state = "done";
+        this.state = "rub";
         out.push("done");
       }
     }
@@ -862,7 +1079,27 @@ export class Sticker {
         ctx.restore();
       }
     }
-    if (flap) this.drawFlap(ctx, tex);
+    // loosened bits lie back down, not quite flat
+    const loose = (k: number) => this.cell[k] === LOOSE;
+    this.flatShadow(ctx, loose, 1.6);
+    if (tex) {
+      ctx.save();
+      this.cellsPath(ctx, loose);
+      ctx.clip();
+      ctx.drawImage(tex.c, 0, 0, this.gw, this.gh);
+      ctx.fillStyle = "rgba(255,255,255,0.16)";
+      ctx.fillRect(0, 0, this.gw, this.gh);
+      ctx.restore();
+    }
+    if (flap) {
+      this.drawFlap(ctx, tex);
+      // paper going white along the peel line: it's about to give
+      if (this.stress > 0.05) {
+        this.cellsPath(ctx, (k) => this.front_[k] === 1);
+        ctx.fillStyle = `rgba(255,255,255,${Math.min(0.75, this.stress * 0.8)})`;
+        ctx.fill();
+      }
+    }
     for (const f of this.flyers) this.drawFlyer(ctx, f);
     ctx.restore();
   }
@@ -993,6 +1230,31 @@ export class Sticker {
       ctx.arc(m.x, m.y, 2.8, 0, Math.PI * 2);
     }
     ctx.fill();
+    // the paper layer that stayed still carries a faint print
+    this.layers.forEach((L, li) => {
+      if (!L.tex) return;
+      ctx.save();
+      this.cellsPath(ctx, (k) => show(k, FUZZ) && this.fuzzOf[k] === li);
+      ctx.clip();
+      ctx.globalAlpha = 0.62;
+      ctx.drawImage(L.tex.c, 0, 0, this.gw, this.gh);
+      ctx.restore();
+    });
+    // lint: rubbed glue, balled up
+    for (let k = 0; k < this.res.length; k++) {
+      if (!show(k, LINT)) continue;
+      const m = this.center(k);
+      const x = m.x + (hash(k + 11) - 0.5) * 2;
+      const y = m.y + (hash(k + 17) - 0.5) * 2;
+      ctx.fillStyle = "rgba(70,68,62,0.55)";
+      ctx.beginPath();
+      ctx.arc(x, y, 1.5 + hash(k + 19), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.beginPath();
+      ctx.arc(x - 0.5, y - 0.5, 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.strokeStyle = "rgba(250,248,242,0.8)";
     ctx.lineWidth = 0.7;
     ctx.beginPath();
@@ -1213,8 +1475,10 @@ export class Sticker {
         this.line(g, cx - ww / 2 - 1, cy - s.h * 0.1 - 3.5, cx + ww / 2 + 1, cy - s.h * 0.1 - 3.5);
       }
       g.fillStyle = ink;
-      g.font = font(600, Math.round(s.w * 0.26));
+      const rp = Math.round(s.w * 0.26);
+      g.font = font(600, rp);
       g.fillText(L.price, cx, cy + s.h * 0.15);
+      L.glyphs = glyphs(g, L.price, cx - g.measureText(L.price).width / 2, cy + s.h * 0.15, rp);
       g.fillStyle = muted;
       g.font = font(500, 6);
       g.fillText("PLEASE KEEP RECEIPT", cx, cy + s.h * 0.3);
@@ -1244,6 +1508,7 @@ export class Sticker {
       const px = Math.round(Math.min(s.h * 0.36, (100 * (s.w - 98)) / g.measureText(L.price).width));
       g.font = font(600, px);
       g.fillText(L.price, x + 10, y + 40 + px * 0.8);
+      L.glyphs = glyphs(g, L.price, x + 10, y + 40 + px * 0.8, px);
       // barcode
       const bh = Math.min(44, s.h - 70);
       const bx = x + s.w - 76;
@@ -1294,6 +1559,13 @@ export class Sticker {
   }
 }
 
+function glyphs(g: CanvasRenderingContext2D, text: string, x: number, base: number, px: number): Glyph[] {
+  return [...text].map((ch, i) => {
+    const x0 = x + g.measureText(text.slice(0, i)).width;
+    return { ch, x0, x1: x0 + g.measureText(ch).width, y0: base - px * 0.72, y1: base };
+  });
+}
+
 function hash(k: number) {
   let h = Math.imul(k ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
@@ -1306,18 +1578,28 @@ function norm(v: V): V {
   return { x: v.x / l, y: v.y / l };
 }
 
-export type StickerResult = { clean: number; pieces: number; layers: number; glue: number; scratches: number; time: number; kind: string };
+export type StickerResult = {
+  clean: number;
+  pieces: number;
+  layers: number;
+  glue: number;
+  lint: number;
+  edges: number;
+  readable: string;
+  time: number;
+  kind: string;
+};
 
+// There is no perfect tier: the strongest glue always stays, so the best you can do is "nearly".
 export function stickerTier(r: StickerResult) {
   const pct = r.clean;
   const extra = r.pieces - r.layers; // pieces beyond one per sticker
-  if (pct < 0.6) return { tier: "Tacky", line: "The book is now permanently, slightly sticky." };
-  if (extra >= 3) return { tier: "Confetti", line: "You did not peel it so much as take it apart." };
-  if (extra >= 1) return { tier: "In instalments", line: `It came off in ${r.pieces} pieces. The price is still legible.` };
-  if (pct >= 0.99)
-    return r.layers > 1
-      ? { tier: "Factory fresh", line: "Both of them, one piece each. Nobody will ever know what either one cost." }
-      : { tier: "Factory fresh", line: "One piece, no glue. Nobody will ever know what it cost." };
-  if (pct >= 0.9) return { tier: "In one go", line: "A faint sticky ghost remains. It will collect lint for years." };
+  const still = r.readable ? ` And they can still read '${r.readable}'.` : "";
+  if (pct < 0.6) return { tier: "Tacky", line: `The book is now permanently, slightly sticky.${still}` };
+  if (extra >= 3) return { tier: "Confetti", line: `You did not peel it so much as take it apart.${still}` };
+  if (r.readable) return { tier: "They'll know", line: `Whatever else happens, they can still read '${r.readable}'.` };
+  if (extra >= 1) return { tier: "In instalments", line: `It came off in ${r.pieces} pieces. At least the price went with them.` };
+  if (r.lint > 12) return { tier: "Lint magnet", line: "The glue stayed and invited friends." };
+  if (pct >= 0.95) return { tier: "Nearly", line: "There is always a little glue. Wrap it quickly." };
   return { tier: "One piece, some glue", line: "The sticker left. Its glue decided to stay." };
 }
