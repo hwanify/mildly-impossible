@@ -23,11 +23,6 @@ export function SheetThumb() {
   return <canvas ref={ref} aria-hidden="true" />;
 }
 
-// A still frame of the 3D roll, rendered once and saved as an image.
-export function TapeThumb() {
-  return <img src="/assets/tape-thumb.jpg" alt="" loading="lazy" />;
-}
-
 // A still of the mug room, drawn by the game itself, mid-carry.
 export function MugThumb() {
   const ref = useRef<HTMLCanvasElement>(null);

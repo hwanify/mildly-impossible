@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SheetThumb, TapeThumb, MugThumb, DuvetArt } from "../components/chores/ChoreArt";
+import { SheetThumb, MugThumb, DuvetArt } from "../components/chores/ChoreArt";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -39,18 +39,6 @@ function Index() {
           <div className="task-body">
             <div className="serif task-name">Fold a Fitted Sheet</div>
             <p className="task-desc">Four elastic corners, one rectangle. The corners have other plans.</p>
-            <div className="task-meta">
-              <span>Try it</span> →
-            </div>
-          </div>
-        </Link>
-        <Link to="/tape" className="task">
-          <div className="task-thumb">
-            <TapeThumb />
-          </div>
-          <div className="task-body">
-            <div className="serif task-name">Find the End of the Tape</div>
-            <p className="task-desc">It is definitely there. Your thumbnail has been around twice.</p>
             <div className="task-meta">
               <span>Try it</span> →
             </div>

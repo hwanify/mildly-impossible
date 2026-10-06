@@ -9,18 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TapeRouteImport } from './routes/tape'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as MugRouteImport } from './routes/mug'
 import { Route as FittedSheetRouteImport } from './routes/fitted-sheet'
 import { Route as IndexRouteImport } from './routes/index'
 
-const TapeRoute = TapeRouteImport.update({
-  id: '/tape',
-  path: '/tape',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
@@ -53,7 +47,6 @@ export interface FileRoutesByFullPath {
   '/mug': typeof MugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/tape': typeof TapeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -61,7 +54,6 @@ export interface FileRoutesByTo {
   '/mug': typeof MugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/tape': typeof TapeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -70,22 +62,14 @@ export interface FileRoutesById {
   '/mug': typeof MugRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/tape': typeof TapeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml' | '/tape'
+  fullPaths: '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml' | '/tape'
+  to: '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
   id:
-    | '__root__'
-    | '/'
-    | '/fitted-sheet'
-    | '/mug'
-    | '/robots.txt'
-    | '/sitemap.xml'
-    | '/tape'
+    '__root__' | '/' | '/fitted-sheet' | '/mug' | '/robots.txt' | '/sitemap.xml'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -94,18 +78,10 @@ export interface RootRouteChildren {
   MugRoute: typeof MugRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  TapeRoute: typeof TapeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tape': {
-      id: '/tape'
-      path: '/tape'
-      fullPath: '/tape'
-      preLoaderRoute: typeof TapeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/sitemap.xml': {
       id: '/sitemap.xml'
       path: '/sitemap.xml'
@@ -150,7 +126,6 @@ const rootRouteChildren: RootRouteChildren = {
   MugRoute: MugRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  TapeRoute: TapeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
