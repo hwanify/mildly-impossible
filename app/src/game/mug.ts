@@ -52,7 +52,8 @@ export type MugEvent =
   | "planeIn"
   | "planeHit"
   | "vacuum"
-  | "vacCat";
+  | "vacCat"
+  | "cord";
 /** Things that may or may not happen this time. Each round picks two. */
 export type Hazard = "draft" | "cat" | "plane" | "vacuum";
 type Plane = { x: number; y: number; vx: number; vy: number; a: number; hit: boolean };
@@ -274,6 +275,22 @@ export class MugGame {
       this.lampV += clamp(-this.vx * 0.0016, -0.03, 0.03) + (this.x < bob.x ? 0.004 : -0.004);
       if (jl > 0.6 && this.once("lamp", 40)) ev = "lamp";
     }
+    // the cord, all the way up to the ceiling: there is no going over the lamp
+    let cordHit = false;
+    const sa = Math.sin(this.lampA);
+    const ca = Math.cos(this.lampA);
+    for (let t = 0; t <= LAMP.len - 30; t += 8) {
+      const cx = LAMP.ax + sa * t;
+      const cy = ca * t;
+      if (!this.touches(cx, cy, 4)) continue;
+      cordHit = true;
+      hitCircle(cx, cy, 4);
+    }
+    if (cordHit) {
+      // pushing on the cord swings the whole lamp
+      this.lampV += (this.x < LAMP.ax + sa * 150 ? 0.003 : -0.003) + clamp(this.vx * 0.0012, -0.02, 0.02);
+      if (this.once("cord", 50)) ev = "cord";
+    }
     let jp = 0;
     for (const l of this.leaves()) jp = Math.max(jp, hitCircle(l.x, l.y, l.r));
     if (jp > 0) {
@@ -303,6 +320,13 @@ export class MugGame {
     this.x = clamp(this.x, hw, W - hw);
     this.y = clamp(this.y, hh, FLOOR - hh);
     return ev;
+  }
+
+  /** Is the mug's body within r of (cx, cy)? */
+  private touches(cx: number, cy: number, r: number) {
+    const qx = clamp(cx, this.x - MW / 2, this.x + MW / 2);
+    const qy = clamp(cy, this.y - MH / 2, this.y + MH / 2);
+    return Math.hypot(qx - cx, qy - cy) < r;
   }
 
   /** Leaves, where they are right now: the whole plant rocks on its pot when bumped. */

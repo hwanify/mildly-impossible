@@ -18,6 +18,7 @@ const LINES: Partial<Record<MugEvent, string>> = {
   planeHit: "Hit by a paper airplane. Mostly emotionally.",
   vacuum: "The robot vacuum has started its rounds.",
   vacCat: "The vacuum woke the cat. The cat has left the room.",
+  cord: "You walked into the cord. The lamp is swinging now. So is the coffee.",
 };
 const TONES: Partial<Record<MugEvent, [number, number]>> = {
   spill: [520, 0.03],
@@ -29,6 +30,7 @@ const TONES: Partial<Record<MugEvent, [number, number]>> = {
   late: [330, 0.06],
   catBump: [620, 0.05],
   planeHit: [880, 0.04],
+  cord: [1100, 0.04],
 };
 
 const fmt = (ms: number) => {
