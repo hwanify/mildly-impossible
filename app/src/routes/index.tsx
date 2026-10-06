@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SheetThumb, TapeThumb, DuvetArt } from "../components/chores/ChoreArt";
+import { SheetThumb, TapeThumb, MugThumb, DuvetArt } from "../components/chores/ChoreArt";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -18,6 +18,20 @@ function Index() {
         </p>
       </header>
       <div className="shelf">
+        <Link to="/mug" className="task">
+          <div className="task-thumb">
+            <MugThumb />
+          </div>
+          <div className="task-body">
+            <div className="serif task-name">
+              Carry a Full Mug<span className="task-new">New</span>
+            </div>
+            <p className="task-desc">Filled to the brim. The desk is across the room. The cat is asleep, for now.</p>
+            <div className="task-meta">
+              <span>Try it</span> →
+            </div>
+          </div>
+        </Link>
         <Link to="/fitted-sheet" className="task">
           <div className="task-thumb">
             <SheetThumb />

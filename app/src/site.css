@@ -85,3 +85,6 @@ a.btn-keep{text-decoration:none}
 .ov-label{font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap;margin:18px 0 0 18px}
 .stage-note{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:14px;padding:16px;text-align:center}
 .task-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.stage-room{background:linear-gradient(#F7F4EE,#F2EEE6)}
+.stage-room canvas{cursor:default}
+.task-new{display:inline-block;margin-left:8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:var(--ink);border-radius:99px;padding:2px 7px;vertical-align:3px}
