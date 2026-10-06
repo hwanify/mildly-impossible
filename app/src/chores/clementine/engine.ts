@@ -2,8 +2,8 @@
 // The peel is a grid of small cells over the fruit. Pulling tears cells off at the front of a
 // strip, one small cluster at a time, but the peel only tears so fast: pull faster than that,
 // turn too sharply or pull through a narrow neck and the strip snaps off.
-// What has come off is a real strip: a chain of nodes with height, still attached at the tear,
-// held where your hand is, and otherwise hanging off the fruit under its own weight.
+// Your cursor is the tear: the front follows it as fast as the peel allows, and what has come off
+// trails behind it as a real strip (a chain of nodes with height) hanging off the fruit.
 export const W = 1000;
 export const H = 640;
 const CX = 400;
@@ -16,10 +16,9 @@ const STEP_PX = CELL * 0.8; // pulled length per step
 const CM_PER_PX = 0.02;
 const HUG = 0.07;
 const PILE_SCALE = 0.36;
-const HAND_LIFT = 40; // how high the hand holds the strip
+const TAIL_LIFT = 24; // how high the torn end is lifted while you hold it
 const LIFT_DRAW = 0.45; // on screen, things that are higher sit a little further up
 const GRAV = 0.42;
-const GRIP_ARC = 70; // the hand keeps about this much strip between itself and the tear
 const NAPKIN = { x: 838, y: 330, rot: 0.04 };
 
 export type PeelEvent = "dig" | "dig-again" | "start" | "snap" | "free" | "release" | "regrab" | "clean" | "pick" | "long" | "tear";
@@ -27,16 +26,16 @@ export type SnapReason = "fast" | "turn" | "neck";
 export type FruitKind = "tight" | "normal" | "loose";
 export type PeelResult = { pieces: number; threads: number; picked: number; time: number; longestCm: number; kind: FruitKind };
 
-const KINDS: Record<FruitKind, { rate: number; lim: number; threads: number; film: number; len: number }> = {
-  tight: { rate: 2.2, lim: -3, threads: 0.8, film: 0.6, len: 0.8 },
-  normal: { rate: 2.6, lim: 0, threads: 1, film: 1, len: 1 },
-  loose: { rate: 3.0, lim: 5, threads: 1.6, film: 1.4, len: 1.35 },
+const KINDS: Record<FruitKind, { rate: number; lim: number; threads: number; len: number }> = {
+  tight: { rate: 2.2, lim: -3, threads: 0.8, len: 0.8 },
+  normal: { rate: 2.6, lim: 0, threads: 1, len: 1 },
+  loose: { rate: 3.0, lim: 5, threads: 1.6, len: 1.35 },
 };
 
-type Cell = { x: number; y: number; att: boolean; piece: number; shade: number; gland: boolean; gx: number; gy: number; pith: number };
+type Cell = { x: number; y: number; att: boolean; piece: number; shade: number; gland: boolean; gx: number; gy: number };
 type Thread = { x1: number; y1: number; qx: number; qy: number; x2: number; y2: number; w: number };
 type PathPt = { x: number; y: number; w: number };
-type Node = { x: number; y: number; z: number; px: number; py: number; pz: number; rest: number; w: number; side: number };
+type Node = { x: number; y: number; z: number; px: number; py: number; pz: number; rest: number; w: number };
 type Piece = {
   id: number;
   cells: number;
@@ -53,7 +52,6 @@ type Piece = {
   jitter: number;
   progress: number;
   sf: number; // how close to the tear limit the pull runs, 0..1
-  phase: number;
   // where it ends up on the napkin
   px: number;
   py: number;
@@ -61,7 +59,7 @@ type Piece = {
   ox: number;
   oy: number;
 };
-type Grip = { piece: number; node: number; hx: number; hy: number };
+type Grip = { piece: number; hx: number; hy: number };
 type Tug = { i: number; x: number; y: number };
 type Drop = { x: number; y: number; vx: number; vy: number; life: number; r: number };
 
@@ -131,7 +129,6 @@ export class Peel {
           gland: this.rand() < 0.55,
           gx: x + (this.rand() - 0.5) * CELL,
           gy: y + (this.rand() - 0.5) * CELL,
-          pith: 0,
         });
         this.total++;
       }
@@ -214,21 +211,20 @@ export class Peel {
     return best;
   }
 
-  /** A node of a hanging strip under (x, y), by where it is drawn. */
-  private stripAt(x: number, y: number) {
-    let best: { piece: number; node: number } | null = null;
-    let bd = Infinity;
+  /** The torn end of a hanging strip near (x, y): that is where you pick it back up. */
+  private frontAt(x: number, y: number) {
+    let best: Piece | null = null;
+    let bd = 30;
     for (const pc of this.pieces) {
       if (pc.state !== "hanging") continue;
-      pc.nodes.forEach((n, i) => {
-        const d = Math.hypot(n.x - x, n.y - n.z * LIFT_DRAW - y);
-        if (d < Math.max(14, n.w * 0.6) && d < bd) {
-          bd = d;
-          best = { piece: pc.id, node: i };
-        }
-      });
+      const n = pc.nodes[pc.nodes.length - 1];
+      const d = Math.hypot(n.x - x, n.y - n.z * LIFT_DRAW - y);
+      if (d < bd) {
+        bd = d;
+        best = pc;
+      }
     }
-    return best as { piece: number; node: number } | null;
+    return best;
   }
 
   private threadPoint(t: Thread, u: number) {
@@ -253,19 +249,16 @@ export class Peel {
   }
 
   hover(x: number, y: number): "strip" | "peel" | "thread" | null {
-    if (this.stripAt(x, y)) return "strip";
+    if (this.frontAt(x, y)) return "strip";
     if (this.peelAt(x, y) >= 0) return "peel";
     if (this.threadAt(x, y) >= 0) return "thread";
     return null;
   }
 
   down(x: number, y: number): PeelEvent | null {
-    const hit = this.stripAt(x, y);
+    const hit = this.frontAt(x, y);
     if (hit) {
-      const pc = this.pieces[hit.piece];
-      // the very end is stuck to the fruit, so take hold just behind it
-      const node = hit.node === pc.nodes.length - 1 && hit.node > 0 ? hit.node - 1 : hit.node;
-      this.grip = { piece: pc.id, node, hx: x, hy: y + HAND_LIFT * LIFT_DRAW };
+      this.grip = { piece: hit.id, hx: x, hy: y };
       return "regrab";
     }
     const k = this.peelAt(x, y);
@@ -283,7 +276,7 @@ export class Peel {
   move(x: number, y: number): PeelEvent | null {
     if (this.grip) {
       this.grip.hx = clamp(x, 0, W);
-      this.grip.hy = clamp(y + HAND_LIFT * LIFT_DRAW, 0, H + 20);
+      this.grip.hy = clamp(y, 0, H);
     }
     const tg = this.tug;
     if (tg) {
@@ -314,22 +307,19 @@ export class Peel {
     return null;
   }
 
-  private node(x: number, y: number, rest: number, w: number, i: number, phase: number): Node {
-    // which way up each bit of strip lies: mostly rind, with stretches turned over to the pith
-    const side = Math.sin(i * 0.31 + phase) + 0.6 * Math.sin(i * 0.11 + phase * 2.3) > 0.55 ? 1 : 0;
-    return { x, y, z: 0, px: x, py: y, pz: 0, rest, w, side };
+  private node(x: number, y: number, rest: number, w: number): Node {
+    return { x, y, z: 0, px: x, py: y, pz: 0, rest, w };
   }
 
   private startPiece(k: number, hx: number, hy: number) {
     const c = this.cells[k]!;
     const id = this.pieces.length;
     const a = Math.atan2(c.y - CY, c.x - CX) + Math.PI / 2;
-    const phase = this.rand() * 10;
     const pc: Piece = {
       id,
       cells: 0,
       path: [{ x: c.x, y: c.y, w: 22 }],
-      nodes: [this.node(c.x, c.y, 0, 22, 0, phase)],
+      nodes: [this.node(c.x, c.y, 0, 22)],
       state: "hanging",
       fall: 0,
       ax: c.x,
@@ -340,7 +330,6 @@ export class Peel {
       jitter: this.rand() * 6,
       progress: 0,
       sf: 0,
-      phase,
       px: 0,
       py: 0,
       rot: 0,
@@ -352,12 +341,12 @@ export class Peel {
     let n = 0;
     this.forNear(c.x, c.y, 14, (cc) => {
       if (cc.att) {
-        this.detach(cc, id, 0);
+        this.detach(cc, id);
         n++;
       }
     });
     pc.width = n;
-    this.grip = { piece: id, node: 0, hx, hy: hy + HAND_LIFT * LIFT_DRAW };
+    this.grip = { piece: id, hx, hy };
     // a fine citrus mist
     for (let i = 0; i < 14; i++) {
       const ang = this.rand() * Math.PI * 2;
@@ -367,10 +356,9 @@ export class Peel {
     this.afterTear(id, c.x, c.y);
   }
 
-  private detach(c: Cell, piece: number, film: number) {
+  private detach(c: Cell, piece: number) {
     c.att = false;
     c.piece = piece;
-    c.pith = film;
     this.pieces[piece].cells++;
     this.attached--;
   }
@@ -382,14 +370,14 @@ export class Peel {
         if (!c.att) return;
         let held = 0;
         for (const nb of this.neighbours(k)) if (nb.att) held++;
-        if (held <= 2) this.detach(c, piece, 0);
+        if (held <= 2) this.detach(c, piece);
       });
     }
     // crumbs of peel cut off from the rest are not worth calling a piece
     this.forNear(x, y, CELL * 4.5, (c, k) => {
       if (!c.att) return;
       const crumb = this.crumb(k, 14);
-      if (crumb) for (const q of crumb) this.detach(this.cells[q]!, piece, 0);
+      if (crumb) for (const q of crumb) this.detach(this.cells[q]!, piece);
     });
     if (!this.stemThreads && Math.hypot(x - CX, y - CY) < STRIP) {
       // the white core at the stem, where every strand starts
@@ -473,12 +461,6 @@ export class Peel {
     }
   }
 
-  private arcFrom(pc: Piece, node: number) {
-    let a = 0;
-    for (let i = node + 1; i < pc.nodes.length; i++) a += pc.nodes[i].rest;
-    return a;
-  }
-
   /** Tear one more step of peel in the direction of the pull. */
   private advance(pc: Piece, out: PeelEvent[]) {
     const g = this.grip!;
@@ -493,22 +475,34 @@ export class Peel {
     dy /= nl;
     let best: Cell | null = null;
     let bestScore = -Infinity;
+    let stuck = false;
+    const gap = Math.hypot(g.hx - pc.ax, g.hy - pc.ay);
     this.forNear(pc.ax, pc.ay, CELL * 3, (c, k, d) => {
       if (!c.att) return;
       const nbs = this.neighbours(k);
       if (!nbs.some((nb) => nb.piece === pc.id)) return;
+      stuck = true;
       const dot = ((c.x - pc.ax) * dx + (c.y - pc.ay) * dy) / (d || 1);
-      if (dot < -0.4) return;
-      // peel tears more easily along an edge that is already free, so strips hug the last turn
+      if (dot < -0.75) return;
+      // peel tears more easily along an edge that is already free, so strips hug the last turn,
+      // and it tears towards the cursor rather than past it
       let open = 0;
       for (const nb of nbs) if (!nb.att) open++;
-      const score = dot - (0.22 * d) / CELL + HUG * open;
+      const toCursor = Math.hypot(c.x - g.hx, c.y - g.hy);
+      // every step of the tear has to close in on the cursor, never run off ahead of it
+      if (toCursor > gap - 2) return;
+      const score = dot - (0.22 * d) / CELL + HUG * open - (0.25 * toCursor) / CELL;
       if (score > bestScore) {
         bestScore = score;
         best = c;
       }
     });
     if (!best) {
+      // still attached, just not in the direction you are pulling: wait for you to steer
+      if (stuck) {
+        pc.progress = 0;
+        return;
+      }
       this.drop(pc);
       out.push("free");
       return;
@@ -520,9 +514,7 @@ export class Peel {
     const rim = rb > R - 45;
     this.forNear(b.x, b.y, rim ? 30 : STRIP, (c, _k, d) => {
       if (c.att && (d <= STRIP || Math.hypot(c.x - CX, c.y - CY) > rb - 4)) {
-        // pulling hard tears through the rind and leaves the white layer on the fruit
-        const film = this.rand() < 0.75 ? clamp((0.08 * this.rand() + pc.sf * pc.sf * 0.9) * kind.film, 0, 1) : 0;
-        this.detach(c, pc.id, film);
+        this.detach(c, pc.id);
         n++;
       }
     });
@@ -530,18 +522,16 @@ export class Peel {
     if (this.rand() < (0.03 + 0.4 * pc.sf * pc.sf) * kind.threads) this.addThread(b.x + (this.rand() - 0.5) * 14, b.y + (this.rand() - 0.5) * 14);
     const w = 18 + Math.min(n, 9) * 1.8;
     const last = pc.nodes[pc.nodes.length - 1];
-    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - last.x, b.y - last.y)), w, pc.nodes.length, pc.phase));
+    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - last.x, b.y - last.y)), w));
     pc.dx = dx;
     pc.dy = dy;
     pc.ax = b.x;
     pc.ay = b.y;
     pc.width = n;
     pc.path.push({ x: b.x, y: b.y, w });
-    // the hand works its way up the strip as the tear moves on
-    while (this.arcFrom(pc, g.node) > GRIP_ARC && g.node < pc.nodes.length - 2) g.node++;
     out.push("tear");
     if (this.attached > 0 && this.attached <= 4) {
-      for (const c of this.cells) if (c && c.att) this.detach(c, pc.id, 0);
+      for (const c of this.cells) if (c && c.att) this.detach(c, pc.id);
     }
     if (!this.longSaid && pc.cells > this.total * 0.5) {
       this.longSaid = true;
@@ -559,14 +549,10 @@ export class Peel {
     const turn = dx * pc.dx + dy * pc.dy;
     // a fresh dig is held by the whole thumbnail-sized patch, not by the width of the strip yet
     const w = pc.path.length < 5 ? Math.max(pc.width, 6) : pc.width;
-    const base = 20 + KINDS[this.kind].lim + 3.6 * Math.min(w, 9) + pc.jitter;
-    return { lim: turn < -0.1 ? base * 0.62 : base, turn };
-  }
-
-  reachOf(pc: Piece) {
-    const g = this.grip;
-    const arc = g && g.piece === pc.id ? this.arcFrom(pc, g.node) : GRIP_ARC;
-    return Math.min(GRIP_ARC, 14 + pc.cells * 0.9, Math.max(arc, 18));
+    const base = 26 + KINDS[this.kind].lim + 3.6 * Math.min(w, 9) + pc.jitter;
+    // a sharp turn only counts once you are actually pulling, not while the cursor sits on the tear
+    const sharp = turn < -0.1 && dl > 22;
+    return { lim: sharp ? base * 0.62 : base, turn: sharp ? turn : 1 };
   }
 
   /** Is there still peel attached next to this tear front? */
@@ -585,7 +571,8 @@ export class Peel {
     const g = this.grip;
     const pc = this.active;
     if (g && pc && pc.state === "hanging") {
-      const tension = Math.hypot(g.hx - pc.ax, g.hy - pc.ay) - this.reachOf(pc);
+      // the tear follows the cursor; the gap between them is the stretch
+      const tension = Math.hypot(g.hx - pc.ax, g.hy - pc.ay);
       const { lim, turn } = this.limit(pc, g);
       this.strain = clamp(tension / lim, 0, 1);
       if (tension > lim) {
@@ -596,7 +583,7 @@ export class Peel {
         out.push("snap");
       } else if (tension > 0) {
         const max = KINDS[this.kind].rate;
-        const rate = Math.min(tension * 0.1, max);
+        const rate = Math.min(tension * 0.15, max);
         pc.sf = pc.sf * 0.8 + (rate / max) * 0.2;
         pc.progress += rate * f;
         while (this.grip && pc.state === "hanging" && pc.progress >= STEP_PX) {
@@ -643,17 +630,17 @@ export class Peel {
     const hanging = pc.state === "hanging";
     const last = ns.length - 1;
     const pin = () => {
-      if (hanging) {
-        const fr = ns[last];
+      if (!hanging) return;
+      const fr = ns[last];
+      if (g) {
+        // held: the torn end sits under the cursor, lifted a little, and the rest trails behind
+        fr.x = g.hx;
+        fr.y = g.hy + TAIL_LIFT * LIFT_DRAW;
+        fr.z = TAIL_LIFT;
+      } else {
         fr.x = pc.ax;
         fr.y = pc.ay;
         fr.z = 0;
-      }
-      if (g && g.node !== last) {
-        const h = ns[g.node];
-        h.x = g.hx;
-        h.y = g.hy;
-        h.z = HAND_LIFT;
       }
     };
     const subs = f > 1.5 ? 2 : 1;
@@ -761,19 +748,6 @@ export class Peel {
       ctx.quadraticCurveTo(CX + Math.cos(a + 0.05) * R * 0.5, CY + Math.sin(a + 0.05) * R * 0.5, CX + Math.cos(a) * R, CY + Math.sin(a) * R);
     }
     ctx.stroke();
-    // white film left where the peel was pulled off too hard
-    const films = [0.12, 0.24, 0.4];
-    for (let b = 0; b < 3; b++) {
-      ctx.fillStyle = `rgba(250,243,228,${films[b]})`;
-      ctx.beginPath();
-      for (const c of this.cells) {
-        if (!c || c.att || c.pith < 0.05) continue;
-        if ((c.pith < 0.3 ? 0 : c.pith < 0.6 ? 1 : 2) !== b) continue;
-        ctx.moveTo(c.x + BLOB + 1, c.y);
-        ctx.arc(c.x, c.y, BLOB + 1, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    }
     // pith strands
     ctx.strokeStyle = "#FBF5E8";
     ctx.lineCap = "round";
@@ -796,8 +770,8 @@ export class Peel {
     ctx.beginPath();
     for (const c of this.cells) {
       if (!c || !c.att) continue;
-      ctx.moveTo(c.x + BLOB + 2.4, c.y);
-      ctx.arc(c.x, c.y, BLOB + 2.4, 0, Math.PI * 2);
+      ctx.moveTo(c.x + BLOB + 1.4, c.y);
+      ctx.arc(c.x, c.y, BLOB + 1.4, 0, Math.PI * 2);
     }
     ctx.fill();
     for (let s = 0; s < 3; s++) {
@@ -890,12 +864,12 @@ export class Peel {
     // shadows: the higher a bit is, the further its shadow falls
     for (const pc of live) {
       const pts = pc.nodes.map((n) => ({ x: n.x + 3 + n.z * 0.35, y: n.y + 5 + n.z * 0.3 }));
-      strokeRibbon(ctx, pts, null, stripWidth(pc), "rgba(60,40,10,.13)");
+      strokeRibbon(ctx, pts, stripWidth(pc), "rgba(60,40,10,.13)");
     }
     for (const pc of live) {
       const pts = pc.nodes.map((n) => ({ x: n.x, y: n.y - n.z * LIFT_DRAW }));
       const lift = avgZ(pc);
-      strokeRibbon(ctx, pts, pc.nodes.map((n) => n.side), stripWidth(pc) * (1 + lift * 0.003), null);
+      strokeRibbon(ctx, pts, stripWidth(pc) * (1 + lift * 0.003), null);
     }
     const pc = this.active;
     if (pc && this.strain > 0.55) {
@@ -981,11 +955,11 @@ export class Peel {
   }
 }
 
-/** A piece of peel as it lies flat: the strip it was torn as, rind up, turned over in places. */
+/** A piece of peel as it lies flat: the strip it was torn as, rind up. */
 function drawLaidOut(ctx: CanvasRenderingContext2D, pc: Piece) {
   const w = stripWidth(pc);
-  strokeRibbon(ctx, pc.path.map((q) => ({ x: q.x + 5, y: q.y + 8 })), null, w, "rgba(60,40,10,.12)");
-  strokeRibbon(ctx, pc.path, pc.nodes.map((n) => n.side), w, null);
+  strokeRibbon(ctx, pc.path.map((q) => ({ x: q.x + 5, y: q.y + 8 })), w, "rgba(60,40,10,.12)");
+  strokeRibbon(ctx, pc.path, w, null);
 }
 
 function stripWidth(pc: Piece) {
@@ -1009,48 +983,27 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[
   ctx.lineTo(pts[to].x, pts[to].y);
 }
 
-/**
- * A strip of peel: rind-coloured edge, and a face that is rind or pith depending on which way up
- * that stretch is lying. With `flat` set it is just a single colour (shadows).
- */
-function strokeRibbon(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[], sides: number[] | null, w: number, flat: string | null) {
+/** A strip of peel: darker rind edge, rind face with oil glands. With `flat` set, one colour (shadows). */
+function strokeRibbon(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[], w: number, flat: string | null) {
   if (!pts.length) return;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   const n = pts.length - 1;
-  if (flat) {
-    ctx.strokeStyle = flat;
-    ctx.lineWidth = w;
-    tracePath(ctx, pts, 0, n);
-    ctx.stroke();
-    return;
-  }
-  ctx.strokeStyle = RIND_EDGE;
+  ctx.strokeStyle = flat ?? RIND_EDGE;
   ctx.lineWidth = w;
   tracePath(ctx, pts, 0, n);
   ctx.stroke();
-  // faces, one run per stretch lying the same way up
-  let start = 0;
-  for (let i = 1; i <= n + 1; i++) {
-    const cur = sides ? sides[Math.min(i, n)] ?? 0 : 0;
-    const prev = sides ? sides[start] ?? 0 : 0;
-    if (i <= n && cur === prev) continue;
-    const end = Math.min(i, n);
-    ctx.strokeStyle = prev ? PITH : RIND;
-    ctx.lineWidth = Math.max(2, w - 6);
-    tracePath(ctx, pts, start, end);
-    ctx.stroke();
-    if (!prev) {
-      // oil glands on the rind side
-      ctx.fillStyle = "rgba(170,70,10,.25)";
-      for (let k = start; k < end; k++) {
-        ctx.beginPath();
-        ctx.arc((pts[k].x + pts[k + 1].x) / 2 + 2, (pts[k].y + pts[k + 1].y) / 2 - 2, 1, 0, Math.PI * 2);
-        ctx.arc(pts[k].x - 3, pts[k].y + 3, 0.9, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    start = end;
+  if (flat) return;
+  ctx.strokeStyle = RIND;
+  ctx.lineWidth = Math.max(2, w - 6);
+  tracePath(ctx, pts, 0, n);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(170,70,10,.25)";
+  for (let k = 0; k < n; k++) {
+    ctx.beginPath();
+    ctx.arc((pts[k].x + pts[k + 1].x) / 2 + 2, (pts[k].y + pts[k + 1].y) / 2 - 2, 1, 0, Math.PI * 2);
+    ctx.arc(pts[k].x - 3, pts[k].y + 3, 0.9, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -1066,7 +1019,7 @@ export function peelTier(r: Pick<PeelResult, "pieces" | "threads">) {
   return { tier: "Confetti", line: "You did not so much peel it as take it apart." };
 }
 
-/** Run a calm, scripted peel (outward spiral from the stem) for the hub thumbnail. */
+/** Run a calm, scripted peel for the hub thumbnail: follow the edge of the peel, like a person would. */
 export function demoPeel(seed: number, upTo: number) {
   const g = new Peel(seed);
   let hx = CX + 3;
@@ -1074,19 +1027,27 @@ export function demoPeel(seed: number, upTo: number) {
   g.down(hx, hy);
   for (let i = 0; i < 4000 && g.active && g.peeled < upTo; i++) {
     const p = g.active;
-    // aim a little ahead along the turn, at a steady hand speed
-    const r = Math.max(25, Math.hypot(p.ax - CX, p.ay - CY));
-    const a = Math.atan2(p.ay - CY, p.ax - CX);
-    const ch = g.reachOf(p) + 22;
-    const phi = Math.min(0.5, Math.asin(Math.min(1, ch / (2 * r))));
-    const tx = p.ax + ch * (-Math.sin(a) * Math.cos(phi) - Math.cos(a) * Math.sin(phi));
-    const ty = p.ay + ch * (Math.cos(a) * Math.cos(phi) - Math.sin(a) * Math.sin(phi));
+    // aim at the attached peel just ahead of the tear, at a steady hand speed
+    let tx = p.ax + p.dx * 12;
+    let ty = p.ay + p.dy * 12;
+    let best = -Infinity;
+    for (const c of g.cells) {
+      if (!c || !c.att) continue;
+      const d = Math.hypot(c.x - p.ax, c.y - p.ay);
+      if (d > 40 || d < 6) continue;
+      const sc = ((c.x - p.ax) * p.dx + (c.y - p.ay) * p.dy) / d - d / 80;
+      if (sc > best) {
+        best = sc;
+        tx = c.x;
+        ty = c.y;
+      }
+    }
     const d = Math.hypot(tx - hx, ty - hy);
     if (d > 0) {
       hx += ((tx - hx) / d) * Math.min(d, 2.4);
       hy += ((ty - hy) / d) * Math.min(d, 2.4);
     }
-    g.move(hx, hy - HAND_LIFT * LIFT_DRAW);
+    g.move(hx, hy);
     g.step(1 / 60);
   }
   return g;
