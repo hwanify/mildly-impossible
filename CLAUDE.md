@@ -1,6 +1,6 @@
 # Mildly Impossible
 
-Mouse-only browser toys about small household tasks that are technically possible (neal.fun style).
+Mouse-only browser toys about small, everyday things that are technically possible (neal.fun style): household chores, but also anything else people are somehow expected to manage.
 English UI, plain hand-made design that looks like the games, dry deadpan copy. Live at https://impossible-chores.higgsfield.app
 
 ## Stack and commands

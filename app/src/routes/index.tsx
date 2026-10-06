@@ -32,8 +32,8 @@ function Index() {
         <header className="desk-card">
           <h1 className="serif hub-title">Mildly Impossible</h1>
           <p className="hub-sub">
-            Small household tasks that are technically possible. There are a thousand tutorials for each of them. This
-            is the practice room.
+            Small, everyday things that are technically possible. Everyone else seems to manage. This is the practice
+            room.
           </p>
           <span className="desk-scrawl">pick something up.</span>
         </header>

@@ -17,7 +17,7 @@ import appMetaJson from "../app-meta.json";
 declare const __HF_DESIGN_INSPECTOR__: boolean;
 
 const DEFAULT_TITLE = "Mildly Impossible";
-const DEFAULT_DESCRIPTION = "Small household tasks that are technically possible.";
+const DEFAULT_DESCRIPTION = "Small, everyday things that are technically possible. Everyone else seems to manage.";
 
 type AppMeta = {
   og_title?: string | null;
