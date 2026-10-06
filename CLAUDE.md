@@ -1,7 +1,7 @@
 # Mildly Impossible
 
 Mouse-only browser toys about small household tasks that are technically possible (neal.fun style).
-English UI, goofy hand-drawn design, dry deadpan copy. Live at https://impossible-chores.higgsfield.app
+English UI, plain hand-made design that looks like the games, dry deadpan copy. Live at https://impossible-chores.higgsfield.app
 
 ## Stack and commands
 
@@ -27,7 +27,7 @@ English UI, goofy hand-drawn design, dry deadpan copy. Live at https://impossibl
 ## Conventions
 
 - Games are mouse-only via pointer events, so touch works too. Engines must not touch `window` or `document` at import time (SSR).
-- Look: marker doodle on a notebook page (see `app/design-brief.md`). Paper `#FFFDF6`, ink `#222`, red `#CC3349`, crayon fills yellow `#FFE45C`, pink `#FFB3C1`, mint `#A8E6CF`, sky `#CDE3FF`. Fonts: Permanent Marker (titles, `.serif`), Patrick Hand (UI). Copy stays deadpan; the page is the joke.
+- Look: made of the same stuff as the games (see `app/design-brief.md`). The hub is a table with each task lying on it; game pages have no frames; steps are a taped to-do slip; results are till receipts. Page `#F4F1EA`, ink `#1C1C1A`, ballpoint `#2D4C9A`. Fonts: Libre Caslon Text (titles, `.serif`), Work Sans (text), Reenie Beanie (handwriting), Courier Prime (receipts). No frames, hard shadows or "playful" fonts.
 - Every game has a step checklist, short toast lines for events, and a result card with a big number plus a one-line tier. Reuse the shared classes in `site.css` (`.play`, `.stage`, `.steps`, `.toast`, `.result*`, `.btn-*`) so games look like one site.
 
 ## Adding a chore (several sessions work in parallel, one chore each)
@@ -40,6 +40,7 @@ Each session builds exactly one chore, on its own branch, touching only its own 
    - `engine.ts`: game logic and canvas drawing (pure TS, no `window`/`document` at import time)
    - `Game.tsx`: React wrapper (canvas, pointer events, steps, toasts, result card). Copy the shape of `components/chores/MugGame.tsx`.
    - `Thumb.tsx`: hub card art, ideally a still frame drawn by the engine (see `components/chores/ChoreArt.tsx`)
+   - `TableItem.tsx`: the thing itself as it lies on the hub's table, seen from above (flat SVG in the game's colours, or the engine's still cropped to the object, see `chores/pizza/TableItem.tsx`). Set it as `TableItem` in `chore`; without one the hub shows `Thumb` as a photo print.
    - `style.css` (only if needed): import as `import stylesheet from "./style.css?url"` and set `stylesheet` in `chore`. Prefix every class with the slug.
    - To build a chore that is listed as "soon" (e.g. `duvet-cover`), take over its existing folder and switch it to `"live"`.
 3. Do not edit shared files: `routes/`, `chores/registry.ts`, `chores/types.ts`, `site.css`, `__root.tsx`, `app-meta.json`, `public/assets/og.png`, other chores' folders. If a shared change is really needed, make it a separate small PR so it does not ride along with a game.

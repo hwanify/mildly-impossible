@@ -1,6 +1,7 @@
 import type { Chore } from "../types";
 import { Game } from "./Game";
 import { Thumb } from "./Thumb";
+import { ScaleTableItem } from "./TableItem";
 import stylesheet from "./style.css?url";
 
 export const chore: Chore = {
@@ -11,6 +12,7 @@ export const chore: Chore = {
   added: "2026-10-06",
   status: "live",
   Thumb,
+  TableItem: ScaleTableItem,
   Game,
   stylesheet,
 };

@@ -1,6 +1,7 @@
 import type { Chore } from "../types";
 import { FittedSheetGame } from "../../components/chores/FittedSheetGame";
 import { SheetThumb } from "../../components/chores/ChoreArt";
+import { SheetTableItem } from "./TableItem";
 
 export const chore: Chore = {
   slug: "fitted-sheet",
@@ -10,5 +11,6 @@ export const chore: Chore = {
   added: "2026-10-01",
   status: "live",
   Thumb: SheetThumb,
+  TableItem: SheetTableItem,
   Game: FittedSheetGame,
 };

@@ -1,6 +1,7 @@
 import type { Chore } from "../types";
 import { ClementineGame } from "./Game";
 import { ClementineThumb } from "./Thumb";
+import { ClementineTableItem } from "./TableItem";
 
 export const chore: Chore = {
   slug: "clementine",
@@ -10,5 +11,6 @@ export const chore: Chore = {
   added: "2026-10-06",
   status: "live",
   Thumb: ClementineThumb,
+  TableItem: ClementineTableItem,
   Game: ClementineGame,
 };

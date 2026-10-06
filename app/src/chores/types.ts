@@ -15,6 +15,9 @@ export type Chore = {
   status: "live" | "soon";
   /** Hub card art: canvas still or inline SVG. Client-only drawing goes in useEffect. */
   Thumb: ComponentType;
+  /** The thing itself lying on the hub's table, seen from above (a mug, a pizza, a book). Optional:
+   *  without one the hub shows `Thumb` as a photo print. Size it yourself, roughly 160-320px. */
+  TableItem?: ComponentType;
   /** The game itself. Required when status is "live". */
   Game?: ComponentType;
   /** Extra stylesheet for this chore, imported as `./style.css?url`. */
