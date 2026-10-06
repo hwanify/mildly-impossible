@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SheetThumb, MugThumb, DuvetArt } from "../components/chores/ChoreArt";
+import { chores, newestSlug } from "../chores/registry";
+import type { Chore } from "../chores/types";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -18,44 +19,46 @@ function Index() {
         </p>
       </header>
       <div className="shelf">
-        <Link to="/mug" className="task">
-          <div className="task-thumb">
-            <MugThumb />
-          </div>
-          <div className="task-body">
-            <div className="serif task-name">
-              Carry a Full Mug<span className="task-new">New</span>
-            </div>
-            <p className="task-desc">Filled to the brim. The desk is across the room. The cat is asleep, for now.</p>
-            <div className="task-meta">
-              <span>Try it</span> →
-            </div>
-          </div>
-        </Link>
-        <Link to="/fitted-sheet" className="task">
-          <div className="task-thumb">
-            <SheetThumb />
-          </div>
-          <div className="task-body">
-            <div className="serif task-name">Fold a Fitted Sheet</div>
-            <p className="task-desc">Four elastic corners, one rectangle. The corners have other plans.</p>
-            <div className="task-meta">
-              <span>Try it</span> →
-            </div>
-          </div>
-        </Link>
-        <div className="task soon" aria-disabled="true">
-          <div className="task-thumb">
-            <DuvetArt />
-          </div>
-          <div className="task-body">
-            <div className="serif task-name">Put On a Duvet Cover</div>
-            <p className="task-desc">Somehow the duvet stays outside and you end up inside.</p>
-            <div className="task-meta">Coming soon</div>
-          </div>
-        </div>
+        {chores.map((c) => (c.status === "live" ? <LiveCard key={c.slug} chore={c} /> : <SoonCard key={c.slug} chore={c} />))}
       </div>
       <p className="hub-foot">New tasks are added occasionally. None of them get easier.</p>
     </main>
+  );
+}
+
+function LiveCard({ chore }: { chore: Chore }) {
+  const { Thumb } = chore;
+  return (
+    <Link to="/$slug" params={{ slug: chore.slug }} className="task">
+      <div className="task-thumb">
+        <Thumb />
+      </div>
+      <div className="task-body">
+        <div className="serif task-name">
+          {chore.title}
+          {chore.slug === newestSlug ? <span className="task-new">New</span> : null}
+        </div>
+        <p className="task-desc">{chore.blurb}</p>
+        <div className="task-meta">
+          <span>Try it</span> →
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function SoonCard({ chore }: { chore: Chore }) {
+  const { Thumb } = chore;
+  return (
+    <div className="task soon" aria-disabled="true">
+      <div className="task-thumb">
+        <Thumb />
+      </div>
+      <div className="task-body">
+        <div className="serif task-name">{chore.title}</div>
+        <p className="task-desc">{chore.blurb}</p>
+        <div className="task-meta">Coming soon</div>
+      </div>
+    </div>
   );
 }
