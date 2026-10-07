@@ -1566,10 +1566,11 @@ export class Building {
       ctx.fillText(LEVELS[l].short, x, y + 4.5);
       let n = 0;
       for (const o of this.others.values()) if (levelAt(o.ty) === l) n++;
-      for (let i = 0; i < Math.min(n, 5); i++) {
+      // somebody's there, or nobody is: one dot either way
+      if (n > 0) {
         ctx.fillStyle = PEN;
         ctx.beginPath();
-        ctx.arc(x - 22 - i * 7, y, 2.6, 0, Math.PI * 2);
+        ctx.arc(x - 22, y, 3, 0, Math.PI * 2);
         ctx.fill();
       }
     }
