@@ -10,11 +10,19 @@ const fmt = (ms: number) => {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 };
 
-/** The room's address: this site's /ws/building (or, on localhost, a stand-in given as ?room=). */
+// Where the room lives. The site's own higgsfield.app address carries WebSockets; a custom
+// domain in front of it may not, so from anywhere else the room is reached there directly.
+const ROOM_HOST = "impossible-chores.higgsfield.app";
+
+/** The room's address: /ws/building on this site's higgsfield.app host (or, on localhost, a
+ *  stand-in given as ?room=). */
 function roomUrl() {
-  const q = new URLSearchParams(window.location.search).get("room");
-  if (q && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname)) return q;
-  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/building`;
+  const { hostname, host, protocol, search } = window.location;
+  const q = new URLSearchParams(search).get("room");
+  const local = /^(localhost|127\.0\.0\.1)$/.test(hostname);
+  if (q && local) return q;
+  if (local || hostname.endsWith(".higgsfield.app")) return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws/building`;
+  return `wss://${ROOM_HOST}/ws/building`;
 }
 
 type Result = {
