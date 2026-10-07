@@ -11,6 +11,8 @@ export type Chore = {
   description: string;
   /** ISO date the chore went live (or was announced). Newest first on the hub; the newest live one gets "New". */
   added: string;
+  /** Played with whoever else is online at the time: the hub marks it with a sticker. */
+  online?: boolean;
   /** "soon" shows a disabled card on the hub and has no page yet. */
   status: "live" | "soon";
   /** Hub card art: canvas still or inline SVG. Client-only drawing goes in useEffect. */
