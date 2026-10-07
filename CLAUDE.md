@@ -58,4 +58,6 @@ The live site is hosted by Higgsfield (website_id `ccd8efc1-8cac-46a0-8f07-44bdd
 2. Call `website_repo_access` with `checkout`, then in `sandbox_exec` run `git pull https://github.com/hwanify/mildly-impossible.git main` inside the checkout path it returns.
 3. Call `website_repo_access` with `push`, then `deploy_website`.
 
+Changes to a game people are already playing go to the test site first: https://mildly-impossible-test.higgsfield.app (website_id `71c572c6-1b59-4153-ae5b-41cbef8effa2`). Deploy it from your branch (check out, replace the checkout's files with the branch's, commit, push, deploy), let the user try it, and only merge and ship to the live site once they say so. Analytics is off on the test site.
+
 Leave the deploy values in `app/wrangler.jsonc` alone; Higgsfield's CI generates the real config. `.github/workflows` belongs to the Higgsfield template CI and needs a runner GitHub doesn't have, so Actions can be disabled on GitHub.

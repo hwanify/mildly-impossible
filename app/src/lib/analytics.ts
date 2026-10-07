@@ -36,6 +36,8 @@ const gameOf = () => {
 /** Load gtag.js and start watching for game events. Returns a cleanup. */
 export function installAnalytics() {
   if (typeof window === "undefined" || window.gtag) return () => {};
+  // the staging site and local dev don't count as visits
+  if (/^(localhost|127\.0\.0\.1)$|-test\./.test(window.location.hostname)) return () => {};
   window.gtag = gtag;
   gtag("js", new Date());
   gtag("config", GA_ID);
