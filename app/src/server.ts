@@ -2,6 +2,10 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { roomRequest } from "./lib/rooms.server";
+
+// The multiplayer rooms' Durable Object class (app.manifest.json "durableObject": "Rooms").
+export { Rooms } from "./lib/rooms.server";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -40,6 +44,9 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      // WebSocket upgrades for multiplayer rooms go straight to their room, before SSR.
+      const room = await roomRequest(request, env);
+      if (room) return room;
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
