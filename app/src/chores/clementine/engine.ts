@@ -11,6 +11,13 @@ const CY = 318;
 const R = 205;
 const CELL = 12;
 const BLOB = CELL * 0.85;
+// grid neighbours to join a cell to (each pair once): right, below-left, below, below-right
+const NEXT: [number, number][] = [
+  [1, 0],
+  [-1, 1],
+  [0, 1],
+  [1, 1],
+];
 const STRIP = 17; // radius of peel that comes off with each step of the tear
 const STEP_PX = CELL * 0.8; // pulled length per step
 const CM_PER_PX = 0.02;
@@ -35,12 +42,20 @@ const KINDS: Record<FruitKind, { rate: number; lim: number; threads: number; len
 type Cell = { x: number; y: number; att: boolean; piece: number; shade: number; gland: boolean; gx: number; gy: number };
 type Thread = { x1: number; y1: number; qx: number; qy: number; x2: number; y2: number; w: number };
 type PathPt = { x: number; y: number; w: number };
+// A cell of peel that has come off, kept as how far along the strip it sits (p: node index plus
+// fraction, a: any overhang past the ends) and how far to the side (t), so the strip is exactly the
+// patch that left the fruit and bends with the rope without ever getting wider. x, y is where it
+// was on the fruit, for laying the piece out flat; ga, gt place its oil gland the same way.
+type Bit = { p: number; a: number; t: number; x: number; y: number; shade: number; gland: boolean; ga: number; gt: number; gx: number; gy: number };
 type Node = { x: number; y: number; z: number; px: number; py: number; pz: number; rest: number; w: number };
 type Piece = {
   id: number;
   cells: number;
   path: PathPt[];
   nodes: Node[];
+  bits: Bit[];
+  joins: [number, number][]; // bits that were next to each other on the fruit
+  fresh: Cell[];
   state: "hanging" | "falling" | "done";
   fall: number;
   // the tear front
@@ -75,8 +90,6 @@ function rng(seed: number) {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 const PITH = "#F5E9D2";
-const RIND = "#EC8A34";
-const RIND_EDGE = "#D7731F";
 
 export class Peel {
   rand: () => number;
@@ -96,6 +109,8 @@ export class Peel {
   strain = 0;
   snapReason: SnapReason = "fast";
   longSaid = false;
+  /** Cells torn off so far; the cached peel is repainted when this changes. */
+  private torn = 0;
   stemThreads = false;
   segOffset: number;
   private oranges: string[];
@@ -320,6 +335,9 @@ export class Peel {
       cells: 0,
       path: [{ x: c.x, y: c.y, w: 22 }],
       nodes: [this.node(c.x, c.y, 0, 22)],
+      bits: [],
+      joins: [],
+      fresh: [],
       state: "hanging",
       fall: 0,
       ax: c.x,
@@ -354,13 +372,73 @@ export class Peel {
       this.drops.push({ x: c.x, y: c.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 1.2, life: 1, r: 1 + this.rand() * 1.8 });
     }
     this.afterTear(id, c.x, c.y);
+    this.bind(pc);
   }
 
   private detach(c: Cell, piece: number) {
     c.att = false;
     c.piece = piece;
     this.pieces[piece].cells++;
+    this.pieces[piece].fresh.push(c);
     this.attached--;
+    this.torn++;
+  }
+
+  /** Pin the cells that just came off to the nearest of the strip's newest nodes. */
+  private bind(pc: Piece) {
+    const path = pc.path;
+    for (const c of pc.fresh) {
+      // the nearest point on the strip's path so far, and the path's direction there
+      let p = 0;
+      let px = path[0].x;
+      let py = path[0].y;
+      let tx = pc.dx;
+      let ty = pc.dy;
+      let bd = Infinity;
+      for (let i = 0; i < path.length - 1; i++) {
+        const A = path[i];
+        const B = path[i + 1];
+        const vx = B.x - A.x;
+        const vy = B.y - A.y;
+        const L2 = vx * vx + vy * vy;
+        if (L2 < 1e-6) continue;
+        const u = clamp(((c.x - A.x) * vx + (c.y - A.y) * vy) / L2, 0, 1);
+        const qx = A.x + vx * u;
+        const qy = A.y + vy * u;
+        const d = Math.hypot(c.x - qx, c.y - qy);
+        if (d < bd) {
+          bd = d;
+          p = i + u;
+          px = qx;
+          py = qy;
+          const L = Math.sqrt(L2);
+          tx = vx / L;
+          ty = vy / L;
+        }
+      }
+      const along = (x: number, y: number) => (x - px) * tx + (y - py) * ty;
+      const side = (x: number, y: number) => -(x - px) * ty + (y - py) * tx;
+      const me = pc.bits.length;
+      // join it to the bits that were its neighbours on the fruit, so the strip stays one sheet
+      for (let j = 0; j < me; j++) {
+        const q = pc.bits[j];
+        if (Math.hypot(q.x - c.x, q.y - c.y) < CELL * 1.75) pc.joins.push([j, me]);
+      }
+      pc.bits.push({
+        p,
+        a: along(c.x, c.y),
+        t: side(c.x, c.y),
+        x: c.x,
+        y: c.y,
+        shade: c.shade,
+        gland: c.gland,
+        ga: along(c.gx, c.gy) - along(c.x, c.y),
+        gt: side(c.gx, c.gy) - side(c.x, c.y),
+        gx: c.gx - c.x,
+        gy: c.gy - c.y,
+      });
+    }
+    pc.fresh = [];
   }
 
   /** Bits of peel with almost nothing left holding them come along with the strip. */
@@ -521,8 +599,10 @@ export class Peel {
     this.afterTear(pc.id, b.x, b.y);
     if (this.rand() < (0.03 + 0.4 * pc.sf * pc.sf) * kind.threads) this.addThread(b.x + (this.rand() - 0.5) * 14, b.y + (this.rand() - 0.5) * 14);
     const w = 18 + Math.min(n, 9) * 1.8;
-    const last = pc.nodes[pc.nodes.length - 1];
-    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - last.x, b.y - last.y)), w));
+    // the new link is as long as the peel that just tore (from the last tear point, not from
+    // wherever the hand is holding the end), so the rope is as long as the strip it carries
+    const prev = pc.path[pc.path.length - 1];
+    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - prev.x, b.y - prev.y)), w));
     pc.dx = dx;
     pc.dy = dy;
     pc.ax = b.x;
@@ -533,6 +613,7 @@ export class Peel {
     if (this.attached > 0 && this.attached <= 4) {
       for (const c of this.cells) if (c && c.att) this.detach(c, pc.id);
     }
+    this.bind(pc);
     if (!this.longSaid && pc.cells > this.total * 0.5) {
       this.longSaid = true;
       out.push("long");
@@ -670,10 +751,10 @@ export class Peel {
         if (n.z < 0) n.z = 0;
       }
       pin();
-      for (let it = 0; it < 10; it++) {
+      for (let it = 0; it < 16; it++) {
         for (let i = 1; i < ns.length; i++) this.link(ns[i - 1], ns[i], ns[i].rest, false);
-        // peel is stiff: it curls but does not fold flat on itself
-        for (let i = 2; i < ns.length; i++) this.link(ns[i - 2], ns[i], (ns[i].rest + ns[i - 1].rest) * 0.8, true);
+        // peel is stiff: it curls but does not fold back on itself
+        for (let i = 2; i < ns.length; i++) this.link(ns[i - 2], ns[i], (ns[i].rest + ns[i - 1].rest) * 0.9, true);
         for (const n of ns) if (n.z < 0) n.z = 0;
         pin();
       }
@@ -727,7 +808,8 @@ export class Peel {
     ctx.fill();
     ctx.restore();
 
-    this.drawNapkin(ctx);
+    // the napkin and the peel on it only change when another piece lands
+    this.cached(ctx, "napkin", this.pieces.filter((q) => q.state === "done").length, 680, 60, 320, 580, (c) => this.paintNapkin(c));
 
     ctx.save();
     ctx.beginPath();
@@ -765,33 +847,9 @@ export class Peel {
       ctx.stroke();
       ctx.strokeStyle = "#FBF5E8";
     });
-    // peel: a pale pith rim under each patch, then the rind
-    ctx.fillStyle = PITH;
-    ctx.beginPath();
-    for (const c of this.cells) {
-      if (!c || !c.att) continue;
-      ctx.moveTo(c.x + BLOB + 1.4, c.y);
-      ctx.arc(c.x, c.y, BLOB + 1.4, 0, Math.PI * 2);
-    }
-    ctx.fill();
-    for (let s = 0; s < 3; s++) {
-      ctx.fillStyle = this.oranges[s];
-      ctx.beginPath();
-      for (const c of this.cells) {
-        if (!c || !c.att || c.shade !== s) continue;
-        ctx.moveTo(c.x + BLOB, c.y);
-        ctx.arc(c.x, c.y, BLOB, 0, Math.PI * 2);
-      }
-      ctx.fill();
-    }
-    ctx.fillStyle = "rgba(170,70,10,.22)";
-    ctx.beginPath();
-    for (const c of this.cells) {
-      if (!c || !c.att || !c.gland) continue;
-      ctx.moveTo(c.gx + 1, c.gy);
-      ctx.arc(c.gx, c.gy, 1, 0, Math.PI * 2);
-    }
-    ctx.fill();
+    // the peel only changes when some of it comes off, so it is painted once per change
+    const px = CX - R - CELL;
+    this.cached(ctx, "peel", this.torn, px, px - CX + CY, 2 * (R + CELL), 2 * (R + CELL), (c) => this.paintPeel(c));
     // stem
     const sk = this.idx(CX, CY);
     if (sk >= 0 && this.cells[sk]?.att) {
@@ -825,7 +883,88 @@ export class Peel {
     }
   }
 
-  private drawNapkin(ctx: CanvasRenderingContext2D) {
+  private paintPeel(ctx: CanvasRenderingContext2D) {
+    // peel: one skin over the attached cells (joined to their neighbours so the torn edge runs
+    // ragged but firm, not in round bumps), a pale pith rim under it, then soft mottling on top
+    const joins: [Cell, Cell][] = [];
+    const lone: Cell[] = [];
+    this.cells.forEach((c, k) => {
+      if (!c || !c.att) return;
+      lone.push(c);
+      const i = k % this.cols;
+      for (const [di, dj] of NEXT) {
+        const ii = i + di;
+        if (ii < 0 || ii >= this.cols) continue;
+        const nb = this.cells[k + dj * this.cols + di];
+        if (nb && nb.att) joins.push([c, nb]);
+      }
+    });
+    const skin = (w: number, colour: string) => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = w;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      for (const [a, b] of joins) {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      for (const c of lone) {
+        ctx.moveTo(c.x, c.y);
+        ctx.lineTo(c.x + 0.01, c.y);
+      }
+      ctx.stroke();
+    };
+    skin(2 * BLOB + 2.6, PITH);
+    skin(2 * BLOB - 0.4, this.oranges[0]);
+    for (let s = 1; s < 3; s++) {
+      const r = BLOB - 2.5;
+      ctx.fillStyle = this.oranges[s];
+      ctx.globalAlpha = 0.45;
+      ctx.beginPath();
+      for (const c of lone) {
+        if (c.shade !== s) continue;
+        ctx.moveTo(c.x + r, c.y);
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(170,70,10,.22)";
+    ctx.beginPath();
+    for (const c of this.cells) {
+      if (!c || !c.att || !c.gland) continue;
+      ctx.moveTo(c.gx + 1, c.gy);
+      ctx.arc(c.gx, c.gy, 1, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+
+  /**
+   * Paint something that rarely changes into an offscreen canvas at the current scale, and reuse
+   * it until `key` changes. Falls back to painting directly where there is no offscreen canvas.
+   */
+  private cache = new Map<string, { key: number; scale: number; cv: OffscreenCanvas }>();
+  private cached(ctx: CanvasRenderingContext2D, name: string, key: number, x: number, y: number, w: number, h: number, paint: (c: CanvasRenderingContext2D) => void) {
+    if (typeof OffscreenCanvas === "undefined") {
+      paint(ctx);
+      return;
+    }
+    const t = ctx.getTransform();
+    const scale = Math.hypot(t.a, t.b);
+    let hit = this.cache.get(name);
+    if (!hit || hit.key !== key || hit.scale !== scale) {
+      const cv = new OffscreenCanvas(Math.max(1, Math.ceil(w * scale)), Math.max(1, Math.ceil(h * scale)));
+      const c = cv.getContext("2d") as unknown as CanvasRenderingContext2D;
+      c.scale(scale, scale);
+      c.translate(-x, -y);
+      paint(c);
+      hit = { key, scale, cv };
+      this.cache.set(name, hit);
+    }
+    ctx.drawImage(hit.cv as unknown as CanvasImageSource, x, y, w, h);
+  }
+
+  private paintNapkin(ctx: CanvasRenderingContext2D) {
     ctx.save();
     ctx.translate(NAPKIN.x, NAPKIN.y);
     ctx.rotate(NAPKIN.rot);
@@ -849,7 +988,7 @@ export class Peel {
       ctx.rotate(pc.rot);
       ctx.scale(PILE_SCALE, PILE_SCALE);
       ctx.translate(-pc.ox, -pc.oy);
-      drawLaidOut(ctx, pc);
+      drawLaidOut(ctx, pc, this.oranges);
       ctx.restore();
     }
   }
@@ -863,14 +1002,9 @@ export class Peel {
     ctx.save();
     // shadows: the higher a bit is, the further its shadow falls
     for (const pc of live) {
-      const pts = pc.nodes.map((n) => ({ x: n.x + 3 + n.z * 0.35, y: n.y + 5 + n.z * 0.3 }));
-      strokeRibbon(ctx, pts, stripWidth(pc), "rgba(60,40,10,.13)");
+      drawPatch(ctx, pc, onRope(pc, (n) => ({ x: n.x + 3 + n.z * 0.35, y: n.y + 5 + n.z * 0.3 })), null, "rgba(60,40,10,.13)");
     }
-    for (const pc of live) {
-      const pts = pc.nodes.map((n) => ({ x: n.x, y: n.y - n.z * LIFT_DRAW }));
-      const lift = avgZ(pc);
-      strokeRibbon(ctx, pts, stripWidth(pc) * (1 + lift * 0.003), null);
-    }
+    for (const pc of live) drawPatch(ctx, pc, onRope(pc, (n) => ({ x: n.x, y: n.y - n.z * LIFT_DRAW })), this.oranges, null);
     const pc = this.active;
     if (pc && this.strain > 0.55) {
       // white stretch marks right where it is about to go
@@ -901,13 +1035,15 @@ export class Peel {
       let y1 = -Infinity;
       const c = Math.cos(pc.rot);
       const s = Math.sin(pc.rot);
-      for (const q of pc.path) {
-        const x = (q.x - pc.ox) * c - (q.y - pc.oy) * s;
-        const y = (q.x - pc.ox) * s + (q.y - pc.oy) * c;
-        x0 = Math.min(x0, x - 14);
-        y0 = Math.min(y0, y - 14);
-        x1 = Math.max(x1, x + 14);
-        y1 = Math.max(y1, y + 14);
+      for (const q of pc.bits) {
+        const px = q.x - pc.ox;
+        const py = q.y - pc.oy;
+        const x = px * c - py * s;
+        const y = px * s + py * c;
+        x0 = Math.min(x0, x - BLOB - 2);
+        y0 = Math.min(y0, y - BLOB - 2);
+        x1 = Math.max(x1, x + BLOB + 2);
+        y1 = Math.max(y1, y + BLOB + 2);
       }
       return { pc, x0, y0, x1, y1 };
     });
@@ -949,62 +1085,125 @@ export class Peel {
       ctx.scale(sc, sc);
       ctx.rotate(b.pc.rot);
       ctx.translate(-b.pc.ox, -b.pc.oy);
-      drawLaidOut(ctx, b.pc);
+      drawLaidOut(ctx, b.pc, this.oranges);
       ctx.restore();
     });
   }
 }
 
-/** A piece of peel as it lies flat: the strip it was torn as, rind up. */
-function drawLaidOut(ctx: CanvasRenderingContext2D, pc: Piece) {
-  const w = stripWidth(pc);
-  strokeRibbon(ctx, pc.path.map((q) => ({ x: q.x + 5, y: q.y + 8 })), w, "rgba(60,40,10,.12)");
-  strokeRibbon(ctx, pc.path, w, null);
+type Placed = { at: (q: Bit, gland?: boolean) => { x: number; y: number }; under: (q: Bit) => number };
+
+/**
+ * Where each bit of a strip sits now: as far along the rope and as far to its side as it was along
+ * the path and to its side on the fruit. A strip lying where it was torn looks exactly like the
+ * hole it left; a strip held up bends with the rope and keeps its width.
+ */
+function onRope(pc: Piece, at: (n: Node) => { x: number; y: number }): Placed {
+  const ns = pc.nodes;
+  const P = ns.map(at);
+  const last = P.length - 1;
+  return {
+    at: (q, gland = false) => {
+      let x = P[0].x;
+      let y = P[0].y;
+      let tx = pc.dx;
+      let ty = pc.dy;
+      if (last > 0) {
+        const i = Math.min(Math.floor(q.p), last - 1);
+        const u = q.p - i;
+        const A = P[i];
+        const B = P[i + 1];
+        x = A.x + (B.x - A.x) * u;
+        y = A.y + (B.y - A.y) * u;
+        const L = Math.hypot(B.x - A.x, B.y - A.y);
+        if (L > 0.01) {
+          tx = (B.x - A.x) / L;
+          ty = (B.y - A.y) / L;
+        }
+      }
+      const a = q.a + (gland ? q.ga : 0);
+      const t = q.t + (gland ? q.gt : 0);
+      return { x: x + tx * a - ty * t, y: y + ty * a + tx * t };
+    },
+    // peel lifted off the fruit hangs half turned over, so its pale inside starts to show
+    under: (q) => Math.min(1, Math.max(0, (ns[Math.min(last, Math.round(q.p))].z - 4) / 26)) * 0.55,
+  };
 }
 
-function stripWidth(pc: Piece) {
-  const ws = pc.path.map((q) => q.w).sort((a, b) => a - b);
-  return ws[Math.floor(ws.length / 2)];
+/** A piece lying flat: every bit where it was on the fruit. */
+function asTorn(dx: number, dy: number): Placed {
+  return { at: (q, gland = false) => ({ x: q.x + dx + (gland ? q.gx : 0), y: q.y + dy + (gland ? q.gy : 0) }), under: () => 0 };
 }
 
-/** Draw a run of points as one smooth strip, through the midpoints so the joins do not show. */
-function tracePath(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[], from: number, to: number) {
-  ctx.beginPath();
-  ctx.moveTo(pts[from].x, pts[from].y);
-  if (to === from) {
-    ctx.lineTo(pts[from].x + 0.1, pts[from].y);
+/**
+ * A strip of peel as the cells it is made of: the white pith showing round the torn outline, then
+ * the rind in the fruit's own shades, then the oil glands. With `flat` set, one colour (shadows).
+ */
+function drawPatch(ctx: CanvasRenderingContext2D, pc: Piece, pl: Placed, oranges: string[] | null, flat: string | null) {
+  const place = (q: Bit) => pl.at(q);
+  const pts = pc.bits.map((q) => place(q));
+  // the strip as one sheet: every bit joined to its old neighbours, in a single stroke so
+  // see-through layers (shadows) come out even
+  const sheet = (w: number, colour: string, pick: (q: Bit) => boolean = () => true) => {
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = w;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (const [i, j] of pc.joins) {
+      if (!pick(pc.bits[i]) || !pick(pc.bits[j])) continue;
+      // neighbours on the fruit that the strip has since carried apart are no longer joined
+      if (Math.abs(pts[i].x - pts[j].x) + Math.abs(pts[i].y - pts[j].y) > CELL * 3) continue;
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[j].x, pts[j].y);
+    }
+    pc.bits.forEach((q, i) => {
+      if (!pick(q)) return;
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i].x + 0.01, pts[i].y);
+    });
+    ctx.stroke();
+  };
+  if (flat || !oranges) {
+    sheet(2 * BLOB + 2.8, flat ?? "rgba(60,40,10,.13)");
     return;
   }
-  for (let i = from + 1; i < to; i++) {
-    const mx = (pts[i].x + pts[i + 1].x) / 2;
-    const my = (pts[i].y + pts[i + 1].y) / 2;
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-  }
-  ctx.lineTo(pts[to].x, pts[to].y);
-}
-
-/** A strip of peel: darker rind edge, rind face with oil glands. With `flat` set, one colour (shadows). */
-function strokeRibbon(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[], w: number, flat: string | null) {
-  if (!pts.length) return;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const n = pts.length - 1;
-  ctx.strokeStyle = flat ?? RIND_EDGE;
-  ctx.lineWidth = w;
-  tracePath(ctx, pts, 0, n);
-  ctx.stroke();
-  if (flat) return;
-  ctx.strokeStyle = RIND;
-  ctx.lineWidth = Math.max(2, w - 6);
-  tracePath(ctx, pts, 0, n);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(170,70,10,.25)";
-  for (let k = 0; k < n; k++) {
+  // the torn edge: peel is thick, and its white pith shows all round where it tore
+  sheet(2 * BLOB + 4, PITH);
+  sheet(2 * BLOB + 1.6, "rgba(214,190,150,.45)");
+  sheet(2 * BLOB - 0.4, oranges[0]);
+  // softly mottled like the fruit it came off
+  ctx.globalAlpha = 0.45;
+  for (let s = 1; s < 3; s++) {
+    ctx.fillStyle = oranges[s];
     ctx.beginPath();
-    ctx.arc((pts[k].x + pts[k + 1].x) / 2 + 2, (pts[k].y + pts[k + 1].y) / 2 - 2, 1, 0, Math.PI * 2);
-    ctx.arc(pts[k].x - 3, pts[k].y + 3, 0.9, 0, Math.PI * 2);
+    pc.bits.forEach((q, i) => {
+      if (q.shade !== s) return;
+      ctx.moveTo(pts[i].x + BLOB - 2.5, pts[i].y);
+      ctx.arc(pts[i].x, pts[i].y, BLOB - 2.5, 0, Math.PI * 2);
+    });
     ctx.fill();
   }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(170,70,10,.22)";
+  ctx.beginPath();
+  for (const q of pc.bits) {
+    if (!q.gland) continue;
+    const p = pl.at(q, true);
+    ctx.moveTo(p.x + 1, p.y);
+    ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  // the lifted part shows its pale underside
+  for (let lv = 1; lv <= 4; lv++) {
+    const pick = (q: Bit) => Math.round((pl.under(q) / 0.55) * 4) === lv;
+    if (pc.bits.some(pick)) sheet(2 * BLOB - 0.4, `rgba(247,236,214,${(lv / 4) * 0.55})`, pick);
+  }
+}
+
+/** A piece of peel as it lies flat: exactly the patch that came off the fruit, rind up. */
+function drawLaidOut(ctx: CanvasRenderingContext2D, pc: Piece, oranges: string[]) {
+  drawPatch(ctx, pc, asTorn(5, 8), null, "rgba(60,40,10,.12)");
+  drawPatch(ctx, pc, asTorn(0, 0), oranges, null);
 }
 
 export function peelTier(r: Pick<PeelResult, "pieces" | "threads">) {
