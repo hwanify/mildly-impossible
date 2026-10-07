@@ -42,9 +42,11 @@ const KINDS: Record<FruitKind, { rate: number; lim: number; threads: number; len
 type Cell = { x: number; y: number; att: boolean; piece: number; shade: number; gland: boolean; gx: number; gy: number };
 type Thread = { x1: number; y1: number; qx: number; qy: number; x2: number; y2: number; w: number };
 type PathPt = { x: number; y: number; w: number };
-// A cell of peel that has come off, kept at its offset from the strip node it tore away with, so the
-// strip is exactly the patch that left the fruit: same outline, same ragged edges, same glands.
-type Bit = { n: number; dx: number; dy: number; shade: number; gland: boolean; gx: number; gy: number };
+// A cell of peel that has come off, kept as how far along the strip it sits (p: node index plus
+// fraction, a: any overhang past the ends) and how far to the side (t), so the strip is exactly the
+// patch that left the fruit and bends with the rope without ever getting wider. x, y is where it
+// was on the fruit, for laying the piece out flat; ga, gt place its oil gland the same way.
+type Bit = { p: number; a: number; t: number; x: number; y: number; shade: number; gland: boolean; ga: number; gt: number; gx: number; gy: number };
 type Node = { x: number; y: number; z: number; px: number; py: number; pz: number; rest: number; w: number };
 type Piece = {
   id: number;
@@ -384,26 +386,57 @@ export class Peel {
 
   /** Pin the cells that just came off to the nearest of the strip's newest nodes. */
   private bind(pc: Piece) {
-    const last = pc.path.length - 1;
+    const path = pc.path;
     for (const c of pc.fresh) {
-      let n = last;
+      // the nearest point on the strip's path so far, and the path's direction there
+      let p = 0;
+      let px = path[0].x;
+      let py = path[0].y;
+      let tx = pc.dx;
+      let ty = pc.dy;
       let bd = Infinity;
-      for (let i = Math.max(0, last - 2); i <= last; i++) {
-        const d = Math.hypot(c.x - pc.path[i].x, c.y - pc.path[i].y);
+      for (let i = 0; i < path.length - 1; i++) {
+        const A = path[i];
+        const B = path[i + 1];
+        const vx = B.x - A.x;
+        const vy = B.y - A.y;
+        const L2 = vx * vx + vy * vy;
+        if (L2 < 1e-6) continue;
+        const u = clamp(((c.x - A.x) * vx + (c.y - A.y) * vy) / L2, 0, 1);
+        const qx = A.x + vx * u;
+        const qy = A.y + vy * u;
+        const d = Math.hypot(c.x - qx, c.y - qy);
         if (d < bd) {
           bd = d;
-          n = i;
+          p = i + u;
+          px = qx;
+          py = qy;
+          const L = Math.sqrt(L2);
+          tx = vx / L;
+          ty = vy / L;
         }
       }
-      const o = pc.path[n];
+      const along = (x: number, y: number) => (x - px) * tx + (y - py) * ty;
+      const side = (x: number, y: number) => -(x - px) * ty + (y - py) * tx;
       const me = pc.bits.length;
       // join it to the bits that were its neighbours on the fruit, so the strip stays one sheet
       for (let j = 0; j < me; j++) {
         const q = pc.bits[j];
-        const p = pc.path[q.n];
-        if (Math.hypot(p.x + q.dx - c.x, p.y + q.dy - c.y) < CELL * 1.75) pc.joins.push([j, me]);
+        if (Math.hypot(q.x - c.x, q.y - c.y) < CELL * 1.75) pc.joins.push([j, me]);
       }
-      pc.bits.push({ n, dx: c.x - o.x, dy: c.y - o.y, shade: c.shade, gland: c.gland, gx: c.gx - c.x, gy: c.gy - c.y });
+      pc.bits.push({
+        p,
+        a: along(c.x, c.y),
+        t: side(c.x, c.y),
+        x: c.x,
+        y: c.y,
+        shade: c.shade,
+        gland: c.gland,
+        ga: along(c.gx, c.gy) - along(c.x, c.y),
+        gt: side(c.gx, c.gy) - side(c.x, c.y),
+        gx: c.gx - c.x,
+        gy: c.gy - c.y,
+      });
     }
     pc.fresh = [];
   }
@@ -566,8 +599,10 @@ export class Peel {
     this.afterTear(pc.id, b.x, b.y);
     if (this.rand() < (0.03 + 0.4 * pc.sf * pc.sf) * kind.threads) this.addThread(b.x + (this.rand() - 0.5) * 14, b.y + (this.rand() - 0.5) * 14);
     const w = 18 + Math.min(n, 9) * 1.8;
-    const last = pc.nodes[pc.nodes.length - 1];
-    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - last.x, b.y - last.y)), w));
+    // the new link is as long as the peel that just tore (from the last tear point, not from
+    // wherever the hand is holding the end), so the rope is as long as the strip it carries
+    const prev = pc.path[pc.path.length - 1];
+    pc.nodes.push(this.node(b.x, b.y, Math.max(6, Math.hypot(b.x - prev.x, b.y - prev.y)), w));
     pc.dx = dx;
     pc.dy = dy;
     pc.ax = b.x;
@@ -716,10 +751,10 @@ export class Peel {
         if (n.z < 0) n.z = 0;
       }
       pin();
-      for (let it = 0; it < 10; it++) {
+      for (let it = 0; it < 16; it++) {
         for (let i = 1; i < ns.length; i++) this.link(ns[i - 1], ns[i], ns[i].rest, false);
-        // peel is stiff: it curls but does not fold flat on itself
-        for (let i = 2; i < ns.length; i++) this.link(ns[i - 2], ns[i], (ns[i].rest + ns[i - 1].rest) * 0.8, true);
+        // peel is stiff: it curls but does not fold back on itself
+        for (let i = 2; i < ns.length; i++) this.link(ns[i - 2], ns[i], (ns[i].rest + ns[i - 1].rest) * 0.9, true);
         for (const n of ns) if (n.z < 0) n.z = 0;
         pin();
       }
@@ -967,10 +1002,9 @@ export class Peel {
     ctx.save();
     // shadows: the higher a bit is, the further its shadow falls
     for (const pc of live) {
-      const fr = frames(pc, (n) => ({ x: n.x + 3 + n.z * 0.35, y: n.y + 5 + n.z * 0.3 }));
-      drawPatch(ctx, pc, fr, null, "rgba(60,40,10,.13)");
+      drawPatch(ctx, pc, onRope(pc, (n) => ({ x: n.x + 3 + n.z * 0.35, y: n.y + 5 + n.z * 0.3 })), null, "rgba(60,40,10,.13)");
     }
-    for (const pc of live) drawPatch(ctx, pc, frames(pc, (n) => ({ x: n.x, y: n.y - n.z * LIFT_DRAW })), this.oranges, null);
+    for (const pc of live) drawPatch(ctx, pc, onRope(pc, (n) => ({ x: n.x, y: n.y - n.z * LIFT_DRAW })), this.oranges, null);
     const pc = this.active;
     if (pc && this.strain > 0.55) {
       // white stretch marks right where it is about to go
@@ -1002,8 +1036,8 @@ export class Peel {
       const c = Math.cos(pc.rot);
       const s = Math.sin(pc.rot);
       for (const q of pc.bits) {
-        const px = pc.path[q.n].x + q.dx - pc.ox;
-        const py = pc.path[q.n].y + q.dy - pc.oy;
+        const px = q.x - pc.ox;
+        const py = q.y - pc.oy;
         const x = px * c - py * s;
         const y = px * s + py * c;
         x0 = Math.min(x0, x - BLOB - 2);
@@ -1057,42 +1091,56 @@ export class Peel {
   }
 }
 
-type Frame = { x: number; y: number; cos: number; sin: number; k: number; under: number };
-
-/** Direction of a run of points at i (central difference), in radians. */
-function heading(pts: { x: number; y: number }[], i: number) {
-  const a = pts[Math.max(0, i - 1)];
-  const b = pts[Math.min(pts.length - 1, i + 1)];
-  return a === b ? 0 : Math.atan2(b.y - a.y, b.x - a.x);
-}
+type Placed = { at: (q: Bit, gland?: boolean) => { x: number; y: number }; under: (q: Bit) => number };
 
 /**
- * Where each node of a strip is now, and how far it has turned since it tore off the fruit.
- * Every cell of peel rides along with its node, so a strip lying where it was torn looks exactly
- * like the hole it left, and a strip held up bends with the rope.
+ * Where each bit of a strip sits now: as far along the rope and as far to its side as it was along
+ * the path and to its side on the fruit. A strip lying where it was torn looks exactly like the
+ * hole it left; a strip held up bends with the rope and keeps its width.
  */
-function frames(pc: Piece, at: (n: Node) => { x: number; y: number }): Frame[] {
+function onRope(pc: Piece, at: (n: Node) => { x: number; y: number }): Placed {
   const ns = pc.nodes;
-  const now = ns.map(at);
-  return now.map((p, i) => {
-    const turn = ns.length > 1 ? heading(now, i) - heading(pc.path, i) : 0;
+  const P = ns.map(at);
+  const last = P.length - 1;
+  return {
+    at: (q, gland = false) => {
+      let x = P[0].x;
+      let y = P[0].y;
+      let tx = pc.dx;
+      let ty = pc.dy;
+      if (last > 0) {
+        const i = Math.min(Math.floor(q.p), last - 1);
+        const u = q.p - i;
+        const A = P[i];
+        const B = P[i + 1];
+        x = A.x + (B.x - A.x) * u;
+        y = A.y + (B.y - A.y) * u;
+        const L = Math.hypot(B.x - A.x, B.y - A.y);
+        if (L > 0.01) {
+          tx = (B.x - A.x) / L;
+          ty = (B.y - A.y) / L;
+        }
+      }
+      const a = q.a + (gland ? q.ga : 0);
+      const t = q.t + (gland ? q.gt : 0);
+      return { x: x + tx * a - ty * t, y: y + ty * a + tx * t };
+    },
     // peel lifted off the fruit hangs half turned over, so its pale inside starts to show
-    const under = Math.min(1, Math.max(0, (ns[i].z - 4) / 26)) * 0.55;
-    return { x: p.x, y: p.y, cos: Math.cos(turn), sin: Math.sin(turn), k: 1 + ns[i].z * 0.003, under };
-  });
+    under: (q) => Math.min(1, Math.max(0, (ns[Math.min(last, Math.round(q.p))].z - 4) / 26)) * 0.55,
+  };
+}
+
+/** A piece lying flat: every bit where it was on the fruit. */
+function asTorn(dx: number, dy: number): Placed {
+  return { at: (q, gland = false) => ({ x: q.x + dx + (gland ? q.gx : 0), y: q.y + dy + (gland ? q.gy : 0) }), under: () => 0 };
 }
 
 /**
  * A strip of peel as the cells it is made of: the white pith showing round the torn outline, then
  * the rind in the fruit's own shades, then the oil glands. With `flat` set, one colour (shadows).
  */
-function drawPatch(ctx: CanvasRenderingContext2D, pc: Piece, fr: Frame[], oranges: string[] | null, flat: string | null) {
-  const place = (q: Bit, ox = 0, oy = 0) => {
-    const f = fr[q.n];
-    const x = (q.dx + ox) * f.k;
-    const y = (q.dy + oy) * f.k;
-    return { x: f.x + x * f.cos - y * f.sin, y: f.y + x * f.sin + y * f.cos };
-  };
+function drawPatch(ctx: CanvasRenderingContext2D, pc: Piece, pl: Placed, oranges: string[] | null, flat: string | null) {
+  const place = (q: Bit) => pl.at(q);
   const pts = pc.bits.map((q) => place(q));
   // the strip as one sheet: every bit joined to its old neighbours, in a single stroke so
   // see-through layers (shadows) come out even
@@ -1103,6 +1151,8 @@ function drawPatch(ctx: CanvasRenderingContext2D, pc: Piece, fr: Frame[], orange
     ctx.beginPath();
     for (const [i, j] of pc.joins) {
       if (!pick(pc.bits[i]) || !pick(pc.bits[j])) continue;
+      // neighbours on the fruit that the strip has since carried apart are no longer joined
+      if (Math.abs(pts[i].x - pts[j].x) + Math.abs(pts[i].y - pts[j].y) > CELL * 3) continue;
       ctx.moveTo(pts[i].x, pts[i].y);
       ctx.lineTo(pts[j].x, pts[j].y);
     }
@@ -1138,23 +1188,22 @@ function drawPatch(ctx: CanvasRenderingContext2D, pc: Piece, fr: Frame[], orange
   ctx.beginPath();
   for (const q of pc.bits) {
     if (!q.gland) continue;
-    const p = place(q, q.gx, q.gy);
+    const p = pl.at(q, true);
     ctx.moveTo(p.x + 1, p.y);
     ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
   }
   ctx.fill();
   // the lifted part shows its pale underside
   for (let lv = 1; lv <= 4; lv++) {
-    const pick = (q: Bit) => Math.round((fr[q.n].under / 0.55) * 4) === lv;
+    const pick = (q: Bit) => Math.round((pl.under(q) / 0.55) * 4) === lv;
     if (pc.bits.some(pick)) sheet(2 * BLOB - 0.4, `rgba(247,236,214,${(lv / 4) * 0.55})`, pick);
   }
 }
 
 /** A piece of peel as it lies flat: exactly the patch that came off the fruit, rind up. */
 function drawLaidOut(ctx: CanvasRenderingContext2D, pc: Piece, oranges: string[]) {
-  const flat: Frame[] = pc.path.map((q) => ({ x: q.x, y: q.y, cos: 1, sin: 0, k: 1, under: 0 }));
-  drawPatch(ctx, pc, flat.map((f) => ({ ...f, x: f.x + 5, y: f.y + 8 })), null, "rgba(60,40,10,.12)");
-  drawPatch(ctx, pc, flat, oranges, null);
+  drawPatch(ctx, pc, asTorn(5, 8), null, "rgba(60,40,10,.12)");
+  drawPatch(ctx, pc, asTorn(0, 0), oranges, null);
 }
 
 export function peelTier(r: Pick<PeelResult, "pieces" | "threads">) {
