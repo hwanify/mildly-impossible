@@ -59,6 +59,12 @@ function Thing({ chore, i }: { chore: Chore; i: number }) {
       </span>
       <span className="desk-tape">{chore.title}</span>
       {chore.slug === newestSlug ? <span className="desk-new">New</span> : null}
+      {chore.online ? (
+        <span className="desk-online" title="Played with whoever else is here">
+          <i aria-hidden="true" />
+          Online
+        </span>
+      ) : null}
     </Link>
   );
 }
