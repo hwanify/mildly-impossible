@@ -1246,8 +1246,6 @@ export class Building {
     const notes: { l: number; x: number; dy: number; text: string[] }[] = [];
     if (s.items.some((i) => i.kind === "mop" && !i.held && i.l >= 0 && i.l !== BASEMENT && i.l !== 3 && i.l !== LOBBY))
       notes.push({ l: 3, x: 335, dy: 190, text: ["whoever keeps leaving", "the mop about:", "we know."] });
-    const prints = s.marks.filter((m) => m.k === "print" && markNow(m, now) > 0.15).length;
-    if (prints >= 10) notes.push({ l: LOBBY, x: 456, dy: 106, text: ["SHOES OFF.", "this means you."] });
     const remote = s.items.find((i) => i.kind === "remote");
     if (remote && remote.l !== 4) notes.push({ l: 4, x: 486, dy: 200, text: ["has anyone seen", "the remote?"] });
     if (s.loo <= 1) notes.push({ l: LOBBY, x: 718, dy: 150, text: ["last sheet.", "again."] });
