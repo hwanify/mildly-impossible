@@ -3,9 +3,10 @@
 // (A plain Durable Object class, without `cloudflare:workers`, so the Node dev server can load it.)
 import type { DurableObjectNamespace, DurableObjectState, WebSocket as CfWebSocket } from "@cloudflare/workers-types";
 import { RoomHub, type RoomKind } from "./roomHub";
+import { building } from "../chores/building/room";
 
 // Every room a chore can open, by name. A chore adds its own (see roomHub.ts for what a room is).
-const KINDS: Record<string, RoomKind<any>> = {};
+const KINDS: Record<string, RoomKind<any>> = { building };
 
 const TICK_MS = 100;
 const SAVE_MS = 2000;

@@ -1,0 +1,7 @@
+.building-stage{background:#EEF0EA}
+.building-stage canvas{cursor:default}
+.building-result{max-height:calc(100dvh - 32px);overflow:auto}
+.building-fixes{list-style:none;margin:14px 0 4px;padding:0;font-family:"Courier Prime",monospace;font-size:13.5px;line-height:1.7;text-align:left}
+.building-fixes li{display:flex;align-items:baseline;gap:6px}
+.building-fixes i{flex:1;border-bottom:1px dotted rgba(28,28,26,.45);transform:translateY(-4px)}
+.building-fixes span:last-child{text-align:right}
