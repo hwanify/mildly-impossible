@@ -1,5 +1,6 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { findChore } from "../chores/registry";
+import { FullscreenToggle } from "../components/FullscreenToggle";
 
 // One route for every game: `/<slug>` renders the chore registered in `src/chores/<slug>/`.
 export const Route = createFileRoute("/$slug")({
@@ -20,5 +21,10 @@ export const Route = createFileRoute("/$slug")({
 function ChorePage() {
   const { slug } = Route.useParams();
   const Game = findChore(slug)?.Game;
-  return <main className="play">{Game ? <Game /> : null}</main>;
+  return (
+    <main className="play">
+      {Game ? <Game /> : null}
+      <FullscreenToggle />
+    </main>
+  );
 }
