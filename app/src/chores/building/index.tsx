@@ -12,6 +12,7 @@ export const chore: Chore = {
     "Walk around a block of flats with everyone else who is online. Straighten the picture, turn off the tap, hold the lift. None of it stays fixed.",
   added: "2026-10-07",
   status: "live",
+  online: true,
   Thumb: BuildingThumb,
   TableItem: BuildingTableItem,
   Game: BuildingGame,

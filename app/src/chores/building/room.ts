@@ -68,15 +68,13 @@ export type BuildingState = {
   washer: { until: number; lone: number };
   items: Item[];
   marks: Mark[];
-  /** The shoes by the front door: tidy (false) or all over the place. */
-  shoes: boolean;
   /** Sheets left on the roll in the loo. */
   loo: number;
   /** Bags taken out to the bins, ever; and when the next one will be full. */
   bins: { out: number; next: number };
   /** Which channel the telly on 2 is on. */
   tv: number;
-  /** Who is standing on the mat, by the shoes, by the chair (stepping in is what knocks them). */
+  /** Who is standing on the mat (stepping onto it is what rucks it up). */
   zone: { mat: string[]; chair: string[]; shoes: string[] };
   /** Whose feet are dirty, with what, for how many more steps, and where they last stepped. */
   feet: Record<string, { c: MarkKind; n: number; x: number; y: number }>;
@@ -112,7 +110,6 @@ export const FEET_STEPS = 6;
 
 // Where people knock things over just by walking past (world x ranges; see the engine).
 export const MAT_X = [244, 340];
-export const SHOES_X = [336, 396];
 export const CHAIR_X = [478, 544];
 export const CHAIR_LEVEL = 4;
 
@@ -257,7 +254,6 @@ function fresh(now: number): BuildingState {
     washer: { until: 0, lone: 0 },
     items: freshItems(),
     marks,
-    shoes: true,
     loo: 1,
     bins: { out: 0, next: 0 },
     tv: 0,
@@ -282,9 +278,6 @@ function deed(s: BuildingState, d: NpcDeed, t: number) {
       break;
     case "mat":
       kickMat(s);
-      break;
-    case "shoes":
-      s.shoes = true;
       break;
     case "mail":
       s.menus = Math.min(12, s.menus + 4);
@@ -445,9 +438,6 @@ export const building: RoomKind<BuildingState> = {
       case "mat":
         // as straight as a mat gets
         s.mat = Math.random() < 0.5 ? -0.8 : 0.8;
-        return true;
-      case "shoes":
-        s.shoes = false;
         return true;
       case "menus": {
         // empty 4B into your hands (if nobody's already walking about with a pile)

@@ -6,7 +6,7 @@ import { BASEMENT, LOBBY, ROOF, floorY } from "./world";
 
 export type NpcId = "man" | "courier" | "cat";
 export type NpcDeed =
-  | "fridge" | "dish" | "mat" | "shoes" | "mail" | "frame" | "remoteTake" | "remoteDrop" | "hair" | "mud" | "loo";
+  | "fridge" | "dish" | "mat" | "mail" | "frame" | "remoteTake" | "remoteDrop" | "hair" | "mud" | "loo";
 export type Pose = "walk" | "stand" | "look" | "sleep" | "sit" | "swat" | "post";
 
 /** The flight of stairs from `level` down to the next: its top and bottom x. (Shared with the engine.) */
@@ -92,13 +92,12 @@ const PLANS: Plan[] = [
     { go: [2, 535] },
   ]),
   // The courier: in through the front door with the weather on his boots, over the mat and the
-  // shoes, a menu in the wrong box, and out.
+  // a menu in the wrong box, and out.
   plan("courier", 95, 41 * S, [LOBBY, 290], [
     { vanish: 150 * S },
     { appear: [LOBBY, 290] },
     { deed: "mat" },
     { deed: "mud" },
-    { deed: "shoes" },
     { go: [LOBBY, 598] },
     { wait: 4 * S, pose: "post" },
     { deed: "mail" },
@@ -247,7 +246,6 @@ export const NPC_LINES: Record<NpcDeed, string> = {
   fridge: "The man from 4 opened the fridge. Again.",
   dish: "He left a plate. He doesn't live on 3.",
   mat: "Somebody stepped on the mat.",
-  shoes: "The courier kicked his shoes off. Everywhere.",
   mail: "More pizza menus in 4B.",
   frame: "The cat knocked the picture.",
   remoteTake: "The cat has the remote.",
@@ -258,6 +256,6 @@ export const NPC_LINES: Record<NpcDeed, string> = {
 };
 /** The floor each deed happens on, for whether you'd see it (-1: wherever the cat is). */
 export const DEED_LEVEL: Record<NpcDeed, number> = {
-  fridge: 2, dish: 3, mat: LOBBY, shoes: LOBBY, mail: LOBBY, frame: 1,
+  fridge: 2, dish: 3, mat: LOBBY, mail: LOBBY, frame: 1,
   remoteTake: -1, remoteDrop: -1, hair: -1, mud: LOBBY, loo: LOBBY,
 };
