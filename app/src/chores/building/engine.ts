@@ -37,7 +37,6 @@ import {
   KITCHEN_BIN,
   LOO,
   MAT_X,
-  SHOES_X,
   SURFACES,
   TV_CHANNELS,
   building,
@@ -113,7 +112,7 @@ export const LEVEL_LINES = [
 
 export type Fix =
   | "frame" | "tap" | "socks" | "aerial" | "lamp" | "fridge" | "boxes" | "dishes" | "plant" | "chair" | "mat" | "mail" | "light" | "washer"
-  | "shoes" | "clean" | "back" | "bins" | "loo" | Garment;
+  | "clean" | "back" | "bins" | "loo" | Garment;
 
 type Thing = {
   id: Fix;
@@ -216,14 +215,6 @@ const THINGS: Thing[] = [
     grab: (b) => ({ kind: "chair", x: b.state.chair, sent: 0 }),
   },
   {
-    id: "shoes", level: LOBBY, x: SHOES_X[0], y: Y(LOBBY) - 34, w: SHOES_X[1] - SHOES_X[0], h: 34,
-    verb: (s) => (s.shoes ? "tidy the shoes" : null),
-    use: (b) => {
-      b.act({ what: "shoes" });
-      return { line: "Four pairs on the rack. One pair too many. There always is.", fixed: true };
-    },
-  },
-  {
     id: "mat", level: LOBBY, x: MAT_X[0], y: Y(LOBBY) - 30, w: MAT_X[1] - MAT_X[0], h: 30,
     verb: (s) => (Math.abs(s.mat) >= 3 ? "straighten it" : null),
     use: (b) => {
@@ -263,7 +254,7 @@ const THINGS: Thing[] = [
 export const FIX_NAMES: Record<Fix, string> = {
   frame: "Picture", tap: "Tap", socks: "Socks", aerial: "Aerial", lamp: "Lamp", fridge: "Fridge", boxes: "Boxes",
   dishes: "Dishes", plant: "Plant", chair: "Chair", mat: "Doormat", mail: "Post", light: "Basement light", washer: "Washing",
-  shoes: "Shoes", clean: "Floors", back: "Putting away", bins: "Bins", loo: "Loo roll",
+  clean: "Floors", back: "Putting away", bins: "Bins", loo: "Loo roll",
   hat: "Hat", scarf: "Scarf", gown: "Dressing gown", coat: "Raincoat",
 };
 
@@ -284,7 +275,6 @@ export function fixStatus(id: Fix, s: BuildingState, now: number) {
     case "mail": return s.menus ? "4B is stuffed again" : "empty, for now";
     case "light": return lightOn(s, now) ? "on" : "dark again";
     case "washer": return `${s.washer.lone} lone sock${s.washer.lone === 1 ? "" : "s"}`;
-    case "shoes": return s.shoes ? "everywhere again" : "in a row, for now";
     case "clean": return `${cleanliness(s, now)}% clean`;
     case "back": { const n = s.items.filter((i) => i.l >= 0 && !i.held && !isHome(i)).length; return n ? `${n} things out of place` : "all put away"; }
     case "bins": return s.items.some((i) => i.kind === "bag" && i.l >= 0) ? "full again" : "empty, for now";
@@ -1262,7 +1252,6 @@ export class Building {
     if (remote && remote.l !== 4) notes.push({ l: 4, x: 486, dy: 200, text: ["has anyone seen", "the remote?"] });
     if (s.loo <= 1) notes.push({ l: LOBBY, x: 718, dy: 150, text: ["last sheet.", "again."] });
     if (s.items.some((i) => i.kind === "bag" && i.l === 3 && !i.held)) notes.push({ l: 3, x: 330, dy: 70, text: ["bin day was", "tuesday."] });
-    if (s.shoes) notes.push({ l: LOBBY, x: 366, dy: 70, text: ["shoes go", "IN the rack."] });
     if (s.marks.filter((m) => m.k === "hair").length >= 5) notes.push({ l: 1, x: 330, dy: 186, text: ["the cat is NOT", "allowed on the sofa."] });
     for (const n of notes) {
       const y = floorY(n.l) - n.dy;
@@ -2035,29 +2024,6 @@ function lobby(ctx: CanvasRenderingContext2D, y: number, b: Building) {
   ctx.fillRect(520, y - 40, 140, 10);
   line(ctx, 530, y - 30, 530, y, INK, 3);
   line(ctx, 650, y - 30, 650, y, INK, 3);
-  // the shoes by the door: a rack, and whether they're on it
-  ctx.fillStyle = "#8C6A4A";
-  ctx.fillRect(SHOES_X[0] + 2, y - 22, SHOES_X[1] - SHOES_X[0] - 4, 4);
-  ctx.fillRect(SHOES_X[0] + 2, y - 4, SHOES_X[1] - SHOES_X[0] - 4, 4);
-  const shoeC = ["#2E2C28", "#C0533F", "#E8E2D0", "#7A5C8E", "#2D4C9A"];
-  for (let i = 0; i < 5; i++) {
-    const sx = s.shoes ? SHOES_X[0] - 30 + ((i * 53) % 110) : i < 4 ? SHOES_X[0] + 12 + (i % 2) * 26 : SHOES_X[1] + 10;
-    const sy = s.shoes ? y - 2 : i < 2 ? y - 22 : i < 4 ? y - 4 : y - 1;
-    const rot = s.shoes ? ((i * 37) % 9) / 6 - 0.6 : 0;
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(rot);
-    ctx.fillStyle = shoeC[i];
-    ctx.beginPath();
-    ctx.ellipse(0, -4, 8, 4, 0, Math.PI, 0);
-    ctx.lineTo(10, 0);
-    ctx.lineTo(-8, 0);
-    ctx.fill();
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    ctx.restore();
-  }
   // the loo, and the roll on its holder (one sheet left, usually)
   ctx.fillStyle = "#D9D2C2";
   ctx.fillRect(LOO.x0 + 4, y - 120, LOO.x1 - LOO.x0 - 8, 120);
