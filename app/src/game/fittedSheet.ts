@@ -16,6 +16,13 @@ const ITER = 18;
 export const SNAP = 46;
 const GRAB = 40;
 const CORNER_R = 34; // a corner that shows this close to the pointer is what you grab
+// A fold corner: the pile's outline turns at least this sharply (inside angle, radians),
+// judged both close by and over a longer stretch, right where the cloth folds over.
+const FOLD_NEAR = 36;
+const FOLD_FAR = 80;
+const FOLD_ANGLE = 2.3;
+const FOLD_ANGLE_FAR = 2.35;
+const FOLD_REACH = S * 1.2; // that close to a fold line
 const TRI_REST = S * S; // a triangle's cross product when lying flat
 // The two sides of the cloth: printed denim on the right side, plain and pale on the wrong side.
 const FRONT = "#6E86A4";
@@ -32,7 +39,6 @@ const ORIG_AREA = QX * S * QY * S;
 
 type Con = { a: number; b: number; rest: number; ks: number; kc: number; el: boolean };
 type Edge = [number, number, boolean];
-type Chain = { c: number[]; pts: number[][]; votes: number };
 export type SheetStats = { flipped: number; maxGroup: number; welded: number };
 export type Judge = { score: number; compact: number; rect: number; weld: number; ball: boolean; flat: boolean };
 
@@ -82,9 +88,17 @@ export class Sheet {
   gy = new Float32Array(N);
   /** The side for colouring, with a stricter turn-over test than ts. */
   vs = new Int8Array(TN);
+  /** Where each point is drawn (see foldPositions), and its neighbours along a fold. */
+  dx = new Float32Array(N);
+  dy = new Float32Array(N);
+  along: number[][] = Array.from({ length: N }, () => []);
   corners: number[];
   groups: number[][] = [];
   held = -1;
+  /** Whether what's held is a corner (of the sheet, or one a fold made), which can be tucked. */
+  heldDot = false;
+  private heldFolds: number[] | null = null;
+  private foldLayers = new Map<number, number[]>();
   heldSet = new Set<number>();
   tx = 0;
   ty = 0;
@@ -241,24 +255,27 @@ export class Sheet {
     return z;
   }
 
-  // Is this sheet corner showing, or is a later-drawn piece of cloth lying over it? (Corners
-  // tucked together count as one: they don't hide each other.)
+  // Is this sheet corner showing, or is a later-drawn piece of cloth lying over it? Corners
+  // tucked together are what you fold by, so they always count as showing; and a corner's own
+  // elastic, bunched up around it, doesn't hide it either.
   private cornerShows(k: number) {
+    if (this.groupOf(k)) return true;
     const { x, y } = this;
-    const own = new Set<number>();
-    for (const c of this.groupOf(k) ?? [k]) for (const t of this.ptTris[c]) own.add(t);
+    const ci = k % NX;
+    const cj = (k / NX) | 0;
+    const own = (p: number) => Math.abs((p % NX) - ci) <= EL && Math.abs(((p / NX) | 0) - cj) <= EL;
     const pos = new Int32Array(TN);
     this.order.forEach((t, i) => (pos[t] = i));
     let rank = -1;
-    for (const t of own) rank = Math.max(rank, pos[t]);
+    for (const t of this.ptTris[k]) rank = Math.max(rank, pos[t]);
     const px = x[k];
     const py = y[k];
     for (let i = rank + 1; i < this.order.length; i++) {
       const t = this.order[i];
-      if (own.has(t)) continue;
       const a = this.ta[t];
       const b = this.tb[t];
       const c = this.tc[t];
+      if (own(a) || own(b) || own(c)) continue;
       const s0 = (x[b] - x[a]) * (py - y[a]) - (y[b] - y[a]) * (px - x[a]);
       const s1 = (x[c] - x[b]) * (py - y[b]) - (y[c] - y[b]) * (px - x[b]);
       const s2 = (x[a] - x[c]) * (py - y[c]) - (y[a] - y[c]) * (px - x[c]);
@@ -281,9 +298,96 @@ export class Sheet {
     return best;
   }
 
-  pick(wx: number, wy: number) {
-    // Corners are what you fold a fitted sheet by: one showing nearby always wins.
+  // The corners a fold makes: where the outline of the pile turns sharply, away from the
+  // sheet's own corners. Each is given as the point of the top layer nearest to it.
+  foldCorners(): number[] {
+    // while something is held the outline is all over the place: keep the ones from the grab
+    if (this.held >= 0 && this.heldFolds) return this.heldFolds;
+    const { x, y } = this;
+    const ids: number[] = [];
+    for (let k = 0; k < N; k++) ids.push(k);
+    ids.sort((a, b) => x[a] - x[b] || y[a] - y[b]);
+    const cr = (o: number, a: number, b: number) => (x[a] - x[o]) * (y[b] - y[o]) - (y[a] - y[o]) * (x[b] - x[o]);
+    const lo: number[] = [];
+    for (const k of ids) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], k) <= 0) lo.pop(); lo.push(k); }
+    const up: number[] = [];
+    for (let i = ids.length - 1; i >= 0; i--) { const k = ids[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], k) <= 0) up.pop(); up.push(k); }
+    const hull = lo.slice(0, -1).concat(up.slice(0, -1));
+    const n = hull.length;
+    // how sharply the outline turns at hull point i, looking this far along it either side
+    const turn = (i: number, span: number) => {
+      const k = hull[i];
+      let pi = i;
+      let ni = i;
+      for (let s = 1; s < n; s++) { pi = (i - s + n) % n; if (Math.hypot(x[hull[pi]] - x[k], y[hull[pi]] - y[k]) > span) break; }
+      for (let s = 1; s < n; s++) { ni = (i + s) % n; if (Math.hypot(x[hull[ni]] - x[k], y[hull[ni]] - y[k]) > span) break; }
+      const ax = x[hull[pi]] - x[k];
+      const ay = y[hull[pi]] - y[k];
+      const bx = x[hull[ni]] - x[k];
+      const by = y[hull[ni]] - y[k];
+      return Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by) || 1))));
+    };
+    // where the cloth folds over: points between triangles turned different ways or lying in
+    // different layers. A bulge in the elastic or a bunched hem is no corner.
+    const folded: number[] = [];
+    for (const [p, q, t0, t1] of this.inner) if (this.ts[t0] !== this.ts[t1] || this.tz[t0] !== this.tz[t1]) folded.push(p, q);
+    const onFold = (k: number) => folded.some((q) => Math.abs(x[q] - x[k]) < FOLD_REACH && Math.hypot(x[q] - x[k], y[q] - y[k]) < FOLD_REACH);
+    const sharp: { k: number; a: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = turn(i, FOLD_NEAR);
+      if (a < FOLD_ANGLE && turn(i, FOLD_FAR) < FOLD_ANGLE_FAR && onFold(hull[i])) sharp.push({ k: hull[i], a });
+    }
+    sharp.sort((p, q) => p.a - q.a);
+    const out: number[] = [];
+    for (const { k } of sharp) {
+      if (out.some((o) => Math.hypot(x[o] - x[k], y[o] - y[k]) < 70)) continue;
+      if (this.corners.some((c) => Math.hypot(x[c] - x[k], y[c] - y[k]) < 60)) continue;
+      if (this.groups.some((g) => Math.hypot(x[g[0]] - x[k], y[g[0]] - y[k]) < 60)) continue;
+      // the top layer there: the highest point close by
+      let best = k;
+      let bz = this.pointZ(k);
+      for (let q = 0; q < N; q++) {
+        if (Math.hypot(x[q] - x[k], y[q] - y[k]) > 10) continue;
+        const z = this.pointZ(q);
+        if (z > bz) { bz = z; best = q; }
+      }
+      out.push(best);
+    }
+    return out;
+  }
+
+  /** The nearest corner a click here would take hold of: a sheet corner first, then a fold corner. */
+  private anyCorner(wx: number, wy: number) {
     const vc = this.visibleCorner(wx, wy);
+    if (vc >= 0) return vc;
+    let best = -1;
+    let bd = CORNER_R;
+    for (const c of [...this.groups.map((g) => g[0]), ...this.foldCorners()]) {
+      const d = Math.hypot(this.x[c] - wx, this.y[c] - wy);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  // A folded corner is held through every layer of the pile at once: one point of each layer
+  // (cloth far apart on the sheet) lying right there.
+  private layersAt(k: number) {
+    const { x, y } = this;
+    const near: number[] = [];
+    for (let q = 0; q < N; q++) if (Math.hypot(x[q] - x[k], y[q] - y[k]) < 14) near.push(q);
+    near.sort((a, b) => Math.hypot(x[a] - x[k], y[a] - y[k]) - Math.hypot(x[b] - x[k], y[b] - y[k]));
+    const out = [k];
+    for (const q of near) {
+      if (out.some((o) => Math.abs((o % NX) - (q % NX)) <= 4 && Math.abs(((o / NX) | 0) - ((q / NX) | 0)) <= 4)) continue;
+      out.push(q);
+    }
+    return out;
+  }
+
+  pick(wx: number, wy: number) {
+    // Corners are what you fold a fitted sheet by: one showing nearby always wins, and so does
+    // a corner a fold has made.
+    const vc = this.anyCorner(wx, wy);
     if (vc >= 0) return vc;
     // Otherwise, the cloth you can see under the pointer is the last triangle drawn there: take
     // the nearest of its points.
@@ -327,7 +431,7 @@ export class Sheet {
 
   /** The corner a click here would grab (for the hover ring), or -1. */
   nearCorner(wx: number, wy: number) {
-    return this.visibleCorner(wx, wy);
+    return this.anyCorner(wx, wy);
   }
 
   grab(wx: number, wy: number) {
@@ -335,7 +439,13 @@ export class Sheet {
     const k = this.pick(wx, wy);
     if (k < 0) return false;
     this.held = k;
-    this.heldSet = new Set(this.groupOf(k) ?? [k]);
+    const g = this.groupOf(k);
+    const fold = !g && !this.corners.includes(k) && this.foldCorners().includes(k);
+    this.heldSet = new Set(g ?? (fold ? this.layersAt(k) : [k]));
+    this.heldDot = !!g || fold || this.corners.includes(k);
+    this.heldFolds = this.foldCorners().filter((f) => !this.heldSet.has(f) && Math.hypot(this.x[f] - this.x[k], this.y[f] - this.y[k]) > 30);
+    // what lies at each of them, taken now: the held cloth will pass over them on its way
+    this.foldLayers = new Map(this.heldFolds.map((f) => [f, this.layersAt(f).filter((q) => !this.heldSet.has(q))]));
     this.level += 1;
     this.gx.set(this.x);
     this.gy.set(this.y);
@@ -349,37 +459,55 @@ export class Sheet {
     this.ty = Math.max(10, Math.min(H - 10, wy));
   }
 
+  /** How many of the sheet's own four corners are in a group. */
+  cornersIn(g: number[]) {
+    let n = 0;
+    for (const c of this.corners) if (g.includes(c)) n++;
+    return n;
+  }
+
+  // Everything a held corner can be tucked into: the sheet's corners, the tucked groups, and
+  // the corners folds have made. Each as the point it sits at and the points it takes along.
+  private dots() {
+    const out: { k: number; pts: number[] }[] = [];
+    for (const g of this.groups) out.push({ k: g[0], pts: g });
+    for (const c of this.corners) if (!this.groupOf(c)) out.push({ k: c, pts: [c] });
+    for (const f of this.foldCorners()) if (!this.groupOf(f)) out.push({ k: f, pts: this.foldLayers.get(f) ?? this.layersAt(f) });
+    return out.filter((d) => !d.pts.some((k) => this.heldSet.has(k)));
+  }
+
   // Returns the size of the welded corner group if a corner got tucked in.
   release(): number {
     const h = this.held;
     let result = 0;
-    if (h >= 0 && this.corners.includes(h)) {
-      const mine = this.groupOf(h) ?? [h];
+    if (h >= 0 && this.heldDot) {
+      const mine = this.groupOf(h) ?? [...this.heldSet];
       let merged = [...mine];
-      for (const c of this.corners) {
-        if (merged.includes(c)) continue;
-        if (Math.min(Math.hypot(this.x[c] - this.x[h], this.y[c] - this.y[h]), Math.hypot(this.x[c] - this.tx, this.y[c] - this.ty)) < SNAP) {
-          merged = [...new Set([...merged, ...(this.groupOf(c) ?? [c])])];
+      for (const d of this.dots()) {
+        if (d.pts.some((k) => merged.includes(k))) continue;
+        if (Math.min(Math.hypot(this.x[d.k] - this.x[h], this.y[d.k] - this.y[h]), Math.hypot(this.x[d.k] - this.tx, this.y[d.k] - this.ty)) < SNAP) {
+          merged = [...new Set([...merged, ...d.pts])];
         }
       }
       if (merged.length > mine.length) {
         this.groups = this.groups.filter((g) => !g.some((k) => merged.includes(k)));
         this.groups.push(merged);
-        result = merged.length;
+        result = Math.max(2, this.cornersIn(merged));
       }
     }
     this.held = -1;
     this.heldSet = new Set();
+    this.heldDot = false;
+    this.heldFolds = null;
+    this.foldLayers = new Map();
     return result;
   }
 
   snapTargets() {
-    if (this.held < 0 || !this.corners.includes(this.held)) return [];
+    if (this.held < 0 || !this.heldDot) return [];
     const hx = this.x[this.held];
     const hy = this.y[this.held];
-    return this.corners
-      .filter((c) => !this.heldSet.has(c))
-      .map((c) => ({ x: this.x[c], y: this.y[c], hot: Math.hypot(this.x[c] - hx, this.y[c] - hy) < SNAP }));
+    return this.dots().map((d) => ({ x: this.x[d.k], y: this.y[d.k], hot: Math.hypot(this.x[d.k] - hx, this.y[d.k] - hy) < SNAP }));
   }
 
   shake() {
@@ -522,7 +650,11 @@ export class Sheet {
     for (let t = 0; t < TN; t++) if (this.ts[t] < 0) f++;
     let maxGroup = 1;
     let welded = 0;
-    for (const g of this.groups) { maxGroup = Math.max(maxGroup, g.length); welded += g.length; }
+    for (const g of this.groups) {
+      const n = this.cornersIn(g);
+      maxGroup = Math.max(maxGroup, n);
+      if (n >= 2) welded += n;
+    }
     return { flipped: f / TN, maxGroup, welded };
   }
 
@@ -560,133 +692,6 @@ export class Sheet {
     const weld = st.welded ? (st.maxGroup - 1) / 3 : 0;
     const score = Math.round(100 * (0.4 * rect + 0.35 * compact + 0.25 * weld));
     return { score, compact, rect, weld, ball: false, flat: compact < 0.15 };
-  }
-
-  // A fold runs across the grid, so the edges where the cloth turns over make a staircase.
-  // Join them into chains, smooth the chains, and fill the notches up to the smoothed line in
-  // the colour of the side on top. No line: the colours and the layer shadows show the fold.
-  private smoothCreases(ctx: CanvasRenderingContext2D, chains: Chain[]) {
-    const { x, y } = this;
-    for (const { c, pts, votes } of chains) {
-      // fill the notches between the jagged edge and its smoothed line, in the colour on top
-      ctx.beginPath();
-      ctx.moveTo(x[c[0]], y[c[0]]);
-      for (let i = 1; i < c.length; i++) ctx.lineTo(x[c[i]], y[c[i]]);
-      for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i][0], pts[i][1]);
-      ctx.closePath();
-      ctx.fillStyle = votes > 0 ? FRONT : BACK;
-      ctx.fill();
-    }
-  }
-
-  // Every crease edge, grouped by the layer it belongs to (the upper of its two triangles).
-  private creaseEdges() {
-    const { ds, tz } = this;
-    const byZ = new Map<number, number[]>();
-    this.inner.forEach(([, , t0, t1], e) => {
-      if (ds[t0] === ds[t1]) return;
-      const z = Math.max(tz[t0], tz[t1]);
-      const l = byZ.get(z);
-      if (l) l.push(e);
-      else byZ.set(z, [e]);
-    });
-    return byZ;
-  }
-
-  // The creases in one layer, as smoothed chains of points.
-  private creaseChains(edges: number[]) {
-    const { x, y, tz } = this;
-    const found: Chain[] = [];
-    const ts = this.ds;
-    const next = new Map<number, number[]>();
-    const top = new Map<number, number>(); // per edge key: the side showing on top
-    const link = (a: number, b: number) => {
-      const l = next.get(a);
-      if (l) l.push(b);
-      else next.set(a, [b]);
-    };
-    for (const e of edges) {
-      const [p0, p1, t0, t1] = this.inner[e];
-      link(p0, p1);
-      link(p1, p0);
-      const upper = tz[t0] === tz[t1] ? -1 : tz[t0] > tz[t1] ? ts[t0] : ts[t1];
-      top.set(Math.min(p0, p1) * N + Math.max(p0, p1), upper);
-    }
-    if (!next.size) return found;
-    // snip the one-edge spurs that stick out at the corners of the staircase
-    const unlink = (a: number, b: number) => next.set(a, (next.get(a) ?? []).filter((v) => v !== b));
-    for (let pass = 0; pass < 2; pass++)
-      for (const [v, ns] of [...next]) {
-        if (ns.length !== 1) continue;
-        const u = ns[0];
-        if ((next.get(u)?.length ?? 0) < 3) continue;
-        unlink(v, u);
-        unlink(u, v);
-      }
-    const used = new Set<number>();
-    const key = (a: number, b: number) => Math.min(a, b) * N + Math.max(a, b);
-    const walk = (from: number, to: number) => {
-      const chain = [from, to];
-      used.add(key(from, to));
-      let prev = from;
-      let cur = to;
-      for (;;) {
-        const ns = next.get(cur) ?? [];
-        if (ns.length !== 2) break;
-        const nx = ns[0] === prev ? ns[1] : ns[0];
-        if (used.has(key(cur, nx))) break;
-        used.add(key(cur, nx));
-        chain.push(nx);
-        prev = cur;
-        cur = nx;
-      }
-      return chain;
-    };
-    const chains: number[][] = [];
-    // open chains first (from their ends or branch points), then whatever loops are left
-    for (const [v, ns] of next) if (ns.length !== 2) for (const n of ns) if (!used.has(key(v, n))) chains.push(walk(v, n));
-    for (const [v, ns] of next) for (const n of ns) if (!used.has(key(v, n))) chains.push(walk(v, n));
-    for (const c of chains) {
-      const closed = c.length > 3 && c[0] === c[c.length - 1];
-      // tiny rings are crumple noise, not folds
-      if ((closed && c.length < 9) || c.length < 3) continue;
-      let pts = c.map((k) => [x[k], y[k]]);
-      // iron out the zigzag first (a few passes of a 1-2-1 average), then round it off
-      for (let it = 0; it < 3 && pts.length > 2; it++) {
-        const out = pts.map((p) => [...p]);
-        const n = pts.length;
-        for (let i = 0; i < n; i++) {
-          const atEnd = i === 0 || i === n - 1;
-          if (atEnd && !closed) continue;
-          const a = pts[atEnd ? n - 2 : i - 1];
-          const b = pts[atEnd ? 1 : i + 1];
-          out[i] = [(a[0] + 2 * pts[i][0] + b[0]) / 4, (a[1] + 2 * pts[i][1] + b[1]) / 4];
-        }
-        if (closed) out[n - 1] = out[0];
-        pts = out;
-      }
-      // Chaikin, twice, keeping the ends where they are
-      for (let it = 0; it < 2 && pts.length > 2; it++) {
-        const out = [pts[0]];
-        for (let i = 0; i < pts.length - 1; i++) {
-          const [ax, ay] = pts[i];
-          const [bx, by] = pts[i + 1];
-          out.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
-        }
-        out.push(pts[pts.length - 1]);
-        pts = out;
-      }
-      if (closed) {
-        // a thin pocket of the other side, not worth smoothing
-        let area = 0;
-        for (let i = 0; i < pts.length - 1; i++) area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1];
-        if (Math.abs(area) / 2 < 1600) continue;
-      }
-      let votes = 0;
-      for (let i = 0; i < c.length - 1; i++) votes += top.get(key(c[i], c[i + 1])) ?? -1;
-      found.push({ c, pts, votes });
-    }
-    return found;
   }
 
   // The side each triangle is drawn on. Starts from the strict colour side (vs), then patches
@@ -736,10 +741,55 @@ export class Sheet {
     this.drawMarks(ctx, hover);
   }
 
+  // Where each point is drawn. A fold runs across the grid, so the cloth turns over along a
+  // zigzag of grid edges and the fold comes out as a staircase. For drawing, each point on a
+  // fold is pulled toward the middle of its two neighbours along it, a few times over, which
+  // irons the staircase into a line. (The simulation keeps the real positions.)
+  private foldPositions() {
+    const { x, y, ds } = this;
+    const dx = this.dx;
+    const dy = this.dy;
+    dx.set(x);
+    dy.set(y);
+    const along = this.along;
+    for (let k = 0; k < N; k++) along[k].length = 0;
+    for (const [p, q, t0, t1] of this.inner) {
+      if (ds[t0] === ds[t1] && this.tz[t0] === this.tz[t1]) continue;
+      along[p].push(q);
+      along[q].push(p);
+    }
+    // the one-edge spurs that stick out at the corners of the staircase aren't part of the line
+    for (let pass = 0; pass < 2; pass++)
+      for (let k = 0; k < N; k++) {
+        if (along[k].length !== 1) continue;
+        const u = along[k][0];
+        if (along[u].length < 3) continue;
+        along[k].length = 0;
+        along[u].splice(along[u].indexOf(k), 1);
+      }
+    const nx = new Float32Array(N);
+    const ny = new Float32Array(N);
+    for (let it = 0; it < 6; it++) {
+      nx.set(dx);
+      ny.set(dy);
+      for (let k = 0; k < N; k++) {
+        const l = along[k];
+        if (l.length !== 2 || this.heldSet.has(k)) continue;
+        nx[k] = (dx[l[0]] + 2 * dx[k] + dx[l[1]]) / 4;
+        ny[k] = (dy[l[0]] + 2 * dy[k] + dy[l[1]]) / 4;
+      }
+      dx.set(nx);
+      dy.set(ny);
+    }
+  }
+
   private drawCloth(ctx: CanvasRenderingContext2D) {
-    const { x, y, tz, ta, tb, tc } = this;
+    const { tz, ta, tb, tc } = this;
     const order = this.order;
     this.despeckle();
+    this.foldPositions();
+    const x = this.dx;
+    const y = this.dy;
     const ts = this.ds;
     order.sort((p, q) => tz[p] - tz[q] || ts[q] - ts[p] || p - q);
     const triPath = (t: number, ox: number, oy: number) => {
@@ -750,65 +800,43 @@ export class Sheet {
     };
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    // Every triangle, wound the same way, as one shape (so they merge with no seams).
+    // Every triangle wound the same way, so the ones of one colour merge with no seams.
     const wound = (t: number) => {
       const a = ta[t];
-      const b = this.triCross(t) >= 0 ? tb[t] : tc[t];
+      const cr = (x[tb[t]] - x[a]) * (y[tc[t]] - y[a]) - (y[tb[t]] - y[a]) * (x[tc[t]] - x[a]);
+      const b = cr >= 0 ? tb[t] : tc[t];
       const c = b === tb[t] ? tc[t] : tb[t];
       ctx.moveTo(x[a], y[a]);
       ctx.lineTo(x[b], y[b]);
       ctx.lineTo(x[c], y[c]);
       ctx.closePath();
     };
-    const whole = () => {
-      ctx.beginPath();
-      for (const t of order) wound(t);
-    };
-    // The creases of each layer, worked out once per frame.
-    const creases = new Map<number, Chain[]>();
-    for (const [z, edges] of this.creaseEdges()) creases.set(z, this.creaseChains(edges));
-    const chains = [...creases.values()].flat();
-    // A soft band along every crease. Inside the pile the cloth covers it; on the outside it
-    // rounds off the staircase the grid leaves where the cloth folds over.
-    const bands = () => {
-      ctx.beginPath();
-      for (const { pts } of chains) {
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      }
-    };
     // its shadow on the mattress
     ctx.fillStyle = "rgba(40,38,30,0.10)";
     ctx.beginPath();
     for (const t of order) triPath(t, 6, 9);
     ctx.fill();
-    // One outline around the whole pile: stroke its edges thick and dark, then cover that with
-    // a single pale fill of all of it, so only the outside half of the stroke is left.
-    // (The outside can only be the hem or somewhere near a fold, so only those get stroked.)
+    // One outline around the whole pile: stroke the hem and the folds thick and dark, then
+    // cover that with a single pale fill of all of it, so only the outside half is left.
     ctx.strokeStyle = OUTLINE;
     ctx.lineWidth = 3.6;
     ctx.beginPath();
-    for (let t = 0; t < TN; t++) for (const [p0, p1] of this.triEdges[t] ?? []) {
-      ctx.moveTo(x[p0], y[p0]);
-      ctx.lineTo(x[p1], y[p1]);
-    }
+    for (let t = 0; t < TN; t++)
+      for (const [p0, p1] of this.triEdges[t] ?? []) {
+        ctx.moveTo(x[p0], y[p0]);
+        ctx.lineTo(x[p1], y[p1]);
+      }
     for (const [p0, p1, t0, t1] of this.inner) {
-      if (this.ts[t0] === this.ts[t1]) continue;
+      if (ts[t0] === ts[t1]) continue;
       ctx.moveTo(x[p0], y[p0]);
       ctx.lineTo(x[p1], y[p1]);
     }
-    ctx.stroke();
-    ctx.lineWidth = 9 + 3.6;
-    bands();
     ctx.stroke();
     ctx.fillStyle = BACK;
-    whole();
+    ctx.beginPath();
+    for (const t of order) wound(t);
     ctx.fill();
-    ctx.strokeStyle = BACK;
-    ctx.lineWidth = 9;
-    bands();
-    ctx.stroke();
-    // Each side as one shape: every triangle wound the same way, so they merge with no seams.
+    // Each side as one shape per layer.
     const sidePath = (from: number, to: number, side: number) => {
       ctx.beginPath();
       for (let n = from; n < to; n++) if (ts[order[n]] === side) wound(order[n]);
@@ -842,8 +870,6 @@ export class Sheet {
       sidePath(start, end, -1);
       ctx.fillStyle = BACK;
       ctx.fill();
-      // creases, where the cloth turns over; drawn with the upper of the two layers
-      this.smoothCreases(ctx, creases.get(z) ?? []);
       // the hem goes on last, so nothing in this layer paints over it; thin, because the
       // outline around the whole pile does the heavy lifting (elastic is a bit thicker)
       for (const el of [false, true]) {
@@ -881,9 +907,11 @@ export class Sheet {
         ctx.fill();
       }
     }
-    for (const g of this.groups) {
+    const dots = this.groups.map((g) => ({ k: g[0], r: 4 + Math.max(2, this.cornersIn(g)) }));
+    if (!this.frozen && !this.anim) for (const f of this.foldCorners()) if (!this.heldSet.has(f)) dots.push({ k: f, r: 5 });
+    for (const { k, r } of dots) {
       ctx.beginPath();
-      ctx.arc(x[g[0]], y[g[0]], 4 + g.length, 0, Math.PI * 2);
+      ctx.arc(x[k], y[k], r, 0, Math.PI * 2);
       ctx.fillStyle = "#1C1C1A";
       ctx.fill();
       ctx.strokeStyle = "#FBFAF7";
