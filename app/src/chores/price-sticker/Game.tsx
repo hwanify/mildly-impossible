@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
 import { ResultBest } from "../../components/ResultBest";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 
 const STEPS = ["Lift an edge", "Work in from a few sides", "Get all of it off", "Rub off what's left"];
@@ -37,7 +38,6 @@ export function Game() {
   const [done, setDone] = useState<boolean[]>(() => STEPS.map(() => false));
   const [time, setTime] = useState(0);
   const [rubbing, setRubbing] = useState(false);
-  const [shared, setShared] = useState(false);
   const finishRef = useRef<() => void>(() => {});
   const [toast, setToast] = useState<string | null>(null);
   const [result, setResult] = useState<StickerResult | null>(null);
@@ -252,26 +252,15 @@ export function Game() {
     setDone(STEPS.map(() => false));
     setTime(0);
     setRubbing(false);
-    setShared(false);
     setToast(null);
     setRound((r) => r + 1);
   };
 
-  const share = async () => {
-    if (!result) return;
+  const shareText = () => {
+    if (!result) return "";
     const bits = [`${result.pieces} ${result.pieces === 1 ? "piece" : "pieces"}`, `${Math.floor(result.clean * 100)}% clean`];
     const text = `I peeled a price sticker off a present. ${bits.join(", ")}.${result.readable ? ` They can still read '${result.readable}'.` : ""}`;
-    const url = `${window.location.origin}/price-sticker`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Peel the Price Sticker", text, url });
-        return;
-      }
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      setShared(true);
-    } catch {
-      /* cancelled or blocked */
-    }
+    return text;
   };
 
   const tier = result ? stickerTier(result) : null;
@@ -313,6 +302,7 @@ export function Game() {
               Wrap it
             </button>
           )}
+          <ShareButton slug="price-sticker" title="Peel the Price Sticker" text={() => "It's a present. The price comes off in one piece, or in forty."}>Dare a gift-wrapper</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -337,11 +327,9 @@ export function Game() {
               </div>
             </div>
             <ResultBest game="price-sticker" value={Math.floor(result.clean * 100)} text={`${Math.floor(result.clean * 100)}%`} />
+            <ShareCoupon slug="price-sticker" title="Peel the Price Sticker" text={shareText} />
             <div className="result-row">
-              <button className="btn-again" onClick={share}>
-                {shared ? "Copied" : "Share result"}
-              </button>
-              <button className="btn-shake" onClick={fresh}>
+              <button className="btn-again" onClick={fresh}>
                 Another sticker
               </button>
               <a className="btn-keep" href="/">

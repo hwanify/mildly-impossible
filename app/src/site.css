@@ -77,7 +77,7 @@ a.desk-item:focus-visible{outline:2px dashed var(--ink);outline-offset:8px}
   mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/var(--z) calc(var(--z)/2) repeat-x,linear-gradient(#000 0 0) center/100% calc(100% - var(--z)) no-repeat,conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/var(--z) calc(var(--z)/2) repeat-x}
 @keyframes print{from{transform:translateY(-24px) rotate(-1deg);opacity:0}to{transform:rotate(-1deg);opacity:1}}
 .result::before{content:"MILDLY IMPOSSIBLE\A HOUSEHOLD PRACTICE ROOM";white-space:pre;order:-3;font-weight:700;font-size:15px;letter-spacing:.04em;line-height:1.4;padding-bottom:8px;border-bottom:1.5px dashed #2A2927}
-.result::after{content:"THANK YOU. PLEASE TRY AGAIN.";order:5;font-size:11.5px;letter-spacing:.08em;padding-top:52px;margin-top:4px;border-top:1.5px dashed #2A2927;background:repeating-linear-gradient(90deg,#2A2927 0 2px,transparent 2px 4px,#2A2927 4px 5px,transparent 5px 8px,#2A2927 8px 11px,transparent 11px 12px,#2A2927 12px 13px,transparent 13px 16px) center 12px/72% 34px no-repeat}
+.result::after{content:"THANK YOU. PLEASE TRY AGAIN.";order:5;font-size:11.5px;letter-spacing:.08em;padding-top:34px;margin-top:4px;border-top:1.5px dashed #2A2927;background:repeating-linear-gradient(90deg,#2A2927 0 2px,transparent 2px 4px,#2A2927 4px 5px,transparent 5px 8px,#2A2927 8px 11px,transparent 11px 12px,#2A2927 12px 13px,transparent 13px 16px) center 9px/72% 20px no-repeat}
 .result-label{order:-2;font-weight:700;text-transform:uppercase;letter-spacing:.03em;text-align:left;margin-top:4px}
 .result-stats{order:1;display:flex;flex-direction:column;gap:2px;padding:6px 0 8px;border-bottom:1.5px dashed #2A2927;text-align:left;text-transform:uppercase}
 .result-stats div{display:flex;justify-content:space-between;gap:12px}
@@ -85,7 +85,7 @@ a.desk-item:focus-visible{outline:2px dashed var(--ink);outline-offset:8px}
 .result-score{order:2;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:72px;line-height:1;letter-spacing:-.04em;margin-top:6px}
 .result-tier{order:3;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase}
 .result-line{order:4;margin:0 0 4px;font-size:13px;text-transform:uppercase}
-.result-row{order:6;display:flex;gap:16px;justify-content:center;align-items:center;margin-top:10px;flex-wrap:wrap;font-family:"Work Sans",system-ui,sans-serif}
+.result-row{order:7;display:flex;gap:16px;justify-content:center;align-items:center;margin-top:10px;flex-wrap:wrap;font-family:"Work Sans",system-ui,sans-serif}
 @media (max-height:900px){.result{gap:2px;font-size:13px;line-height:1.25;padding-top:calc(var(--z) + 8px);padding-bottom:calc(var(--z) + 10px)}.result::before{font-size:13px;padding-bottom:4px}.result-stats{padding:3px 0 5px}.result-score{font-size:50px;margin-top:2px}.result-tier{font-size:14px}.result-line{font-size:12px}.result::after{padding-top:30px;background-size:72% 18px;background-position:center 8px}.result-row{margin-top:4px}.btn-again{padding:8px 16px}}
 a.btn-keep{display:inline-block}
 
@@ -111,3 +111,46 @@ html.play-full,html.play-full body{overflow:hidden}
 .desk-best{font-family:"Reenie Beanie",cursive;font-size:23px;line-height:1;color:var(--pen);transform:rotate(calc(var(--r,0deg) * -1.2))}
 .desk-best.untouched{color:var(--muted)}
 .desk-progress{display:block;margin-top:4px;font-family:"Reenie Beanie",cursive;font-size:24px;color:var(--pen)}
+/* someone shared their result: a taped note at the top of the game page, click to put it away */
+.challenge{position:fixed;top:58px;left:50%;z-index:40;transform:translateX(-50%) rotate(-1.2deg);background:#EDE3C4;color:var(--ink);border:0;padding:4px 16px 1px;font-family:"Reenie Beanie",cursive;font-size:26px;line-height:1.15;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);max-width:calc(100vw - 32px)}
+.challenge b{font-weight:400;color:var(--pen)}
+@media (max-width:700px){.challenge{top:auto;bottom:14px;font-size:20px;width:max-content;text-align:center}}
+/* the controls under the to-do slip, the same in every game: the one main button on its own line,
+   then the game's own links, then sharing in a quieter strip of its own under a dashed line */
+.actions .btn-done{order:-2}
+.actions:has(.btn-done)::before{content:"";order:-1;flex-basis:100%;height:0}
+.btn-share{order:99;font-family:"Reenie Beanie",cursive;font-size:24px;line-height:1.1;background:none;border:0;padding:2px 0;color:var(--pen);cursor:pointer;text-align:left}
+.btn-share::after{content:" \2192";display:inline-block;transition:transform .15s}
+.btn-share:hover::after{transform:translateX(4px)}
+.result-row .btn-share{font-family:"Work Sans",system-ui,sans-serif;font-size:13px;color:var(--muted);text-decoration:underline;text-decoration-color:rgba(107,106,101,.4);text-underline-offset:4px}
+.result-row .btn-share::after{content:none}
+.actions:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0;border-top:1.5px dashed var(--line);margin:2px 0 -6px}
+/* on a receipt: carry on / leave on the first line, share and save under it */
+.result-row:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0}
+.result-row .btn-share{font-size:13px}
+.result-row:has(.btn-share){row-gap:6px}
+/* the stub at the bottom of a receipt, for a friend: tear it off to send it */
+.coupon{order:6;display:block;margin:6px -24px 0;padding:10px 24px 2px;background:none;border:0;border-top:1.5px dashed #2A2927;position:relative;font:inherit;font-weight:700;color:inherit;text-transform:uppercase;text-align:left;cursor:pointer}
+.coupon::before{content:"\2702";position:absolute;top:-11px;left:22px;z-index:1;padding:0 4px;background:#FBFAF6;font-size:15px;font-weight:400;line-height:1;text-transform:none}
+.coupon-paper{display:flex;align-items:baseline;justify-content:space-between;gap:12px;transform-origin:0 0}
+.coupon-cta{flex:none;font-family:"Reenie Beanie",cursive;font-size:23px;font-weight:400;line-height:1;text-transform:none;color:var(--pen)}
+.coupon-cta::after{content:" \2192"}
+.coupon:hover .coupon-cta{text-decoration:underline;text-underline-offset:3px}
+/* tearing: it lifts at the corner, then comes away along the dashed line; the gap stays put */
+.coupon.torn .coupon-paper{animation:tear .38s cubic-bezier(.5,0,.7,.4) forwards}
+.coupon.out .coupon-paper{opacity:0}
+.coupon.printing .coupon-paper{animation:reprint .45s ease-out}
+@keyframes tear{0%{transform:none}35%{transform:rotate(-2.5deg) translateY(1px)}100%{transform:translate(14px,34px) rotate(7deg);opacity:0}}
+@keyframes reprint{from{clip-path:inset(0 0 100% 0);transform:translateY(-8px)}to{clip-path:inset(0);transform:none}}
+/* on a computer: the slip of places to send it to */
+.share-slip{position:fixed;z-index:60;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:170px;padding:10px 16px 12px;background:var(--slip);box-shadow:var(--shadow);transform:rotate(-1deg);animation:veil .15s ease-out}
+.share-slip-head{font-family:"Reenie Beanie",cursive;font-size:22px;color:var(--muted);margin-bottom:2px}
+.share-slip button{font:inherit;font-size:15px;background:none;border:0;padding:3px 0;color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(28,28,26,.3);text-underline-offset:4px}
+.share-slip button:hover{text-decoration-color:var(--ink)}
+/* the torn-off stub in your hand: receipt paper with a torn top, the places to send it written across */
+.share-slip.stub{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:4px 14px;box-sizing:border-box;padding:16px 24px 12px;background:#FBFAF6;color:#2A2927;transform:rotate(-2.5deg);transform-origin:0 0;animation:inhand .25s ease-out;
+  -webkit-mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/10px 5px repeat-x,linear-gradient(#000 0 0) bottom/100% calc(100% - 5px) no-repeat;
+  mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/10px 5px repeat-x,linear-gradient(#000 0 0) bottom/100% calc(100% - 5px) no-repeat}
+.share-slip.stub .share-slip-head{flex-basis:100%;margin:0;font-family:"Courier Prime","Courier New",monospace;font-size:13px;font-weight:700;text-transform:uppercase;color:#2A2927}
+.share-slip.stub button{font-size:14px}
+@keyframes inhand{from{transform:translateY(-10px) rotate(0deg);opacity:0}to{transform:rotate(-2.5deg);opacity:1}}

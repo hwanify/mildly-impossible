@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Sheet, W, H, tierFor, type Judge } from "../../game/fittedSheet";
 import { ResultBest } from "../ResultBest";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = [
   "Tuck one corner into its neighbor",
@@ -200,6 +201,7 @@ export function FittedSheetGame() {
           <button className="btn-done" onClick={finish} disabled={!!result}>
             Done folding
           </button>
+          <ShareButton slug="fitted-sheet" title="Fold a Fitted Sheet">Dare a friend to fold it</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -224,6 +226,7 @@ export function FittedSheetGame() {
               </div>
             </div>
             <ResultBest game="fitted-sheet" value={result.score} text={String(result.score)} />
+            <ShareCoupon slug="fitted-sheet" title="Fold a Fitted Sheet" />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
                 Another sheet

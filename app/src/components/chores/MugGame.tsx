@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MugGame as Engine, W, H, START_ML, mugTier, type MugEvent, type MugResult } from "../../game/mug";
 import { ResultBest } from "../ResultBest";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Pick up the mug (press and hold)", "Under the lamp, over the plant", "Let go just above the desk", "Before the call starts"];
 const SPILLS = ["A drop. The rug saw that.", "There goes some.", "That one landed.", "The floor is having coffee too."];
@@ -235,6 +236,7 @@ export function MugGame() {
           <button className="btn-shake" onClick={fresh}>
             Pour a new one
           </button>
+          <ShareButton slug="mug" title="Carry a Full Mug">Dare a steady hand</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -265,6 +267,7 @@ export function MugGame() {
               </div>
             </div>
             <ResultBest game="mug" value={Math.round((result.ml / START_ML) * 100)} text={`${Math.round((result.ml / START_ML) * 100)}%`} />
+            <ShareCoupon slug="mug" title="Carry a Full Mug" />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
                 Pour another

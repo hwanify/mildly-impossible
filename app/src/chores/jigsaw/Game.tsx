@@ -4,6 +4,7 @@ import { sceneFor } from "./pictures";
 import { BW, BH, COUNT, unpack } from "./puzzle";
 import type { Board, Deal, Placed } from "./api";
 import { noteCount } from "../../lib/records";
+import { ShareButton } from "../../components/share/ShareButton";
 
 // One jigsaw for everybody: the board lives on the server (api.ts). This page asks it for a piece,
 // tells it when the piece goes in, and looks every few seconds for pieces other people put in.
@@ -396,6 +397,21 @@ export function JigsawGame() {
             </li>
           ))}
         </ol>
+        <div className="actions">
+          <ShareButton
+            slug="jigsaw"
+            title="Finish the Jigsaw"
+            text={() => {
+              const g = gameRef.current;
+              if (!g) return "One jigsaw, everybody's. Come and put a piece in.";
+              const left = g.left;
+              const mine = g.mine.size;
+              return `${left ? `${left} pieces left on the jigsaw` : "The jigsaw is finished"}.${mine ? ` I put in ${mine}.` : ""} Come and put a piece in.`;
+            }}
+          >
+            Bring someone in
+          </ShareButton>
+        </div>
       </div>
     </>
   );

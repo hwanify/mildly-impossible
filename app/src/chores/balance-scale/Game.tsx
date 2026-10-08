@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ResultBest } from "../../components/ResultBest";
 import { Balance, W, H, KINDS, fmtMass, type BalanceEvent, type Kind } from "./engine";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Put something on both sides", "Get within a kilogram", "Get within a gram", "Make it perfectly level"];
 const FIRST: Partial<Record<Kind, string>> = {
@@ -220,6 +221,7 @@ export function Game() {
           <button className="btn-shake" onClick={empty}>
             Empty the scale
           </button>
+          <ShareButton slug="balance-scale" title="Balance the Scale" text={() => readout.count ? `${readout.count} ${readout.count === 1 ? "thing" : "things"} on the scale. Left ${readout.left}, right ${readout.right}. ${readout.text}` : "An empty scale. Technically level."}>Show someone the scale</ShareButton>
         </div>
       </div>
       {level && (
@@ -230,6 +232,7 @@ export function Game() {
             <div className="serif result-tier">Within half an ant</div>
             <p className="result-line">Nobody will believe you. You don't fully believe it yourself.</p>
             <ResultBest game="balance-scale" value={readout.count} text={`${readout.count} things`} />
+            <ShareCoupon slug="balance-scale" title="Balance the Scale" />
             <div className="result-row">
               <button className="btn-again" onClick={() => setLevel(null)}>
                 Keep going
