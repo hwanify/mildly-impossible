@@ -111,3 +111,14 @@ html.play-full,html.play-full body{overflow:hidden}
 .challenge{position:fixed;top:58px;left:50%;z-index:40;transform:translateX(-50%) rotate(-1.2deg);background:#EDE3C4;color:var(--ink);border:0;padding:4px 16px 1px;font-family:"Reenie Beanie",cursive;font-size:26px;line-height:1.15;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);max-width:calc(100vw - 32px)}
 .challenge b{font-weight:400;color:var(--pen)}
 @media (max-width:700px){.challenge{top:auto;bottom:14px;font-size:20px;width:max-content;text-align:center}}
+/* the controls under the to-do slip, the same in every game: the one main button on its own line,
+   then the game's own links, then sharing in a quieter strip of its own under a dashed line */
+.actions .btn-done{order:-2}
+.actions:has(.btn-done)::before{content:"";order:-1;flex-basis:100%;height:0}
+.btn-share{order:99;font:inherit;font-size:13.5px;background:none;border:0;padding:4px 0;color:var(--muted);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(107,106,101,.4);text-underline-offset:4px}
+.btn-share:hover{color:var(--ink);text-decoration-color:var(--ink)}
+.actions:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0;border-top:1.5px dashed var(--line);margin:2px 0 -6px}
+/* on a receipt: carry on / leave on the first line, share and save under it */
+.result-row:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0}
+.result-row .btn-share{font-size:13px}
+.result-row:has(.btn-share){row-gap:6px}

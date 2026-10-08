@@ -365,11 +365,11 @@ export function BuildingGame() {
               </div>
             </div>
             <div className="result-row">
-              <ShareButton className="btn-again" slug="building" title="Look After the Building" text={shareText}>
+              <ShareButton slug="building" title="Look After the Building" text={shareText}>
                 Share
               </ShareButton>
               <SaveReceipt slug="building" />
-              <button className="btn-shake" onClick={stay}>
+              <button className="btn-again" onClick={stay}>
                 Go back in
               </button>
               <a className="btn-keep" href="/">

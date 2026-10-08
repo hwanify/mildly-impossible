@@ -251,11 +251,11 @@ export function PizzaGame() {
               </div>
             </div>
             <div className="result-row">
-              <ShareButton className="btn-again" slug="pizza" title="Cut the Pizza Equally" text={shareText}>
-                Share result
+              <ShareButton slug="pizza" title="Cut the Pizza Equally" text={shareText}>
+                Share
               </ShareButton>
               <SaveReceipt slug="pizza" />
-              <button className="btn-shake" onClick={fresh}>
+              <button className="btn-again" onClick={fresh}>
                 Another pizza
               </button>
               <a className="btn-keep" href="/">

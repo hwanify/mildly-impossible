@@ -16,7 +16,7 @@ type Props = {
  * One "Share" for every game. Inside a till receipt (`.result`) it shares the receipt as a picture
  * along with a link that carries the score; anywhere else it shares the game's link and `text`.
  */
-export function ShareButton({ slug, title, text, className = "btn-shake", children = "Share" }: Props) {
+export function ShareButton({ slug, title, text, className = "btn-share", children = "Share" }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,7 +56,7 @@ export function ShareButton({ slug, title, text, className = "btn-shake", childr
 }
 
 /** "Save receipt": the receipt as a picture, straight to the device. Put it inside the `.result`. */
-export function SaveReceipt({ slug, className = "btn-keep" }: { slug: string; className?: string }) {
+export function SaveReceipt({ slug, className = "btn-share" }: { slug: string; className?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const go = async () => {
     const receipt = ref.current?.closest<HTMLElement>(".result");

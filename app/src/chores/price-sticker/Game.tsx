@@ -326,11 +326,11 @@ export function Game() {
               </div>
             </div>
             <div className="result-row">
-              <ShareButton className="btn-again" slug="price-sticker" title="Peel the Price Sticker" text={shareText}>
-                Share result
+              <ShareButton slug="price-sticker" title="Peel the Price Sticker" text={shareText}>
+                Share
               </ShareButton>
               <SaveReceipt slug="price-sticker" />
-              <button className="btn-shake" onClick={fresh}>
+              <button className="btn-again" onClick={fresh}>
                 Peel another
               </button>
               <a className="btn-keep" href="/">
