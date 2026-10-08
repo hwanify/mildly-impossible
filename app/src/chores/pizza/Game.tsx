@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pizza, W, H, CX, CY, R, SLICES, pizzaTier, ratioText, type CutEvent, type PizzaResult } from "./engine";
-import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Cut it in half", "Get it to quarters", "Make eight slices"];
 const CUTS = ["Cut.", "Another cut.", "The cutter is getting confident.", "Keep going."];
@@ -252,7 +252,6 @@ export function PizzaGame() {
             </div>
             <ShareCoupon slug="pizza" title="Cut the Pizza Equally" text={shareText} />
             <div className="result-row">
-              <SaveReceipt slug="pizza" />
               <button className="btn-again" onClick={fresh}>
                 Another pizza
               </button>

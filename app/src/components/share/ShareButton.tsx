@@ -148,13 +148,8 @@ export function ShareCoupon({ slug, title, text }: { slug: string; title: string
   return (
     <>
       <button ref={ref} type="button" className={`coupon${torn ? " torn" : ""}`} onClick={go} aria-label="Tear off and send to a friend">
-        <span className="coupon-line coupon-head">For a friend</span>
-        <span className="coupon-line">
-          I got {lines.got}
-          {lines.tier ? `. ${lines.tier}` : ""}.
-        </span>
-        <span className="coupon-line">Bet you can't beat it.</span>
-        <span className="coupon-cta">{said ?? "Tear off and send"}</span>
+        <span className="coupon-line">For a friend: beat {lines.got}</span>
+        <span className="coupon-cta">{said ?? "tear off"}</span>
       </button>
       {ui}
     </>

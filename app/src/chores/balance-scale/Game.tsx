@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Balance, W, H, KINDS, fmtMass, type BalanceEvent, type Kind } from "./engine";
-import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Put something on both sides", "Get within a kilogram", "Get within a gram", "Make it perfectly level"];
 const FIRST: Partial<Record<Kind, string>> = {
@@ -235,7 +235,6 @@ export function Game() {
               <button className="btn-again" onClick={() => setLevel(null)}>
                 Keep going
               </button>
-              <SaveReceipt slug="balance-scale" />
               <button className="btn-keep" onClick={empty}>
                 Empty the scale
               </button>

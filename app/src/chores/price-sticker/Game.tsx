@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
-import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 
 const STEPS = ["Lift an edge", "Work in from a few sides", "Get all of it off", "Rub off what's left"];
@@ -327,7 +327,6 @@ export function Game() {
             </div>
             <ShareCoupon slug="price-sticker" title="Peel the Price Sticker" text={shareText} />
             <div className="result-row">
-              <SaveReceipt slug="price-sticker" />
               <button className="btn-again" onClick={fresh}>
                 Peel another
               </button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sheet, W, H, tierFor, type Judge } from "../../game/fittedSheet";
-import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = [
   "Tuck one corner into its neighbor",
@@ -229,7 +229,6 @@ export function FittedSheetGame() {
               <button className="btn-again" onClick={fresh}>
                 Another sheet
               </button>
-              <SaveReceipt slug="fitted-sheet" />
               {!result.ball && (
                 <button className="btn-keep" onClick={() => setResult(null)}>
                   Keep tidying

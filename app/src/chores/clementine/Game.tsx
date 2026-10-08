@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Peel, W, H, peelTier, type FruitKind, type PeelEvent, type PeelResult } from "./engine";
-import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Dig a thumbnail into the peel", "Pull slowly. Fast pulls tear", "Get all of the peel off", "Pull off the white threads (optional)"];
 const SNAPS = {
@@ -321,7 +321,6 @@ export function ClementineGame() {
               <button className="btn-again" onClick={fresh}>
                 Peel another
               </button>
-              <SaveReceipt slug="clementine" />
               <a className="btn-keep" href="/">
                 All tasks
               </a>
