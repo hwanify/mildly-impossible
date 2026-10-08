@@ -126,14 +126,27 @@ html.play-full,html.play-full body{overflow:hidden}
 .result-row .btn-share{font-size:13px}
 .result-row:has(.btn-share){row-gap:6px}
 /* the stub at the bottom of a receipt, for a friend: tear it off to send it */
-.coupon{order:6;display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:6px -24px 0;padding:10px 24px 2px;background:none;border:0;border-top:1.5px dashed #2A2927;position:relative;font:inherit;font-weight:700;color:inherit;text-transform:uppercase;text-align:left;cursor:pointer;transition:transform .5s cubic-bezier(.3,.6,.4,1),opacity .5s}
-.coupon::before{content:"\2702";position:absolute;top:-11px;left:22px;padding:0 4px;background:#FBFAF6;font-size:15px;font-weight:400;line-height:1;text-transform:none}
+.coupon{order:6;display:block;margin:6px -24px 0;padding:10px 24px 2px;background:none;border:0;border-top:1.5px dashed #2A2927;position:relative;font:inherit;font-weight:700;color:inherit;text-transform:uppercase;text-align:left;cursor:pointer}
+.coupon::before{content:"\2702";position:absolute;top:-11px;left:22px;z-index:1;padding:0 4px;background:#FBFAF6;font-size:15px;font-weight:400;line-height:1;text-transform:none}
+.coupon-paper{display:flex;align-items:baseline;justify-content:space-between;gap:12px;transform-origin:0 0}
 .coupon-cta{flex:none;font-family:"Reenie Beanie",cursive;font-size:23px;font-weight:400;line-height:1;text-transform:none;color:var(--pen)}
 .coupon-cta::after{content:" \2192"}
 .coupon:hover .coupon-cta{text-decoration:underline;text-underline-offset:3px}
-.coupon.torn{transform:translate(18px,26px) rotate(5deg);opacity:0}
+/* tearing: it lifts at the corner, then comes away along the dashed line; the gap stays put */
+.coupon.torn .coupon-paper{animation:tear .38s cubic-bezier(.5,0,.7,.4) forwards}
+.coupon.out .coupon-paper{opacity:0}
+.coupon.printing .coupon-paper{animation:reprint .45s ease-out}
+@keyframes tear{0%{transform:none}35%{transform:rotate(-2.5deg) translateY(1px)}100%{transform:translate(14px,34px) rotate(7deg);opacity:0}}
+@keyframes reprint{from{clip-path:inset(0 0 100% 0);transform:translateY(-8px)}to{clip-path:inset(0);transform:none}}
 /* on a computer: the slip of places to send it to */
 .share-slip{position:fixed;z-index:60;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:170px;padding:10px 16px 12px;background:var(--slip);box-shadow:var(--shadow);transform:rotate(-1deg);animation:veil .15s ease-out}
 .share-slip-head{font-family:"Reenie Beanie",cursive;font-size:22px;color:var(--muted);margin-bottom:2px}
 .share-slip button{font:inherit;font-size:15px;background:none;border:0;padding:3px 0;color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(28,28,26,.3);text-underline-offset:4px}
 .share-slip button:hover{text-decoration-color:var(--ink)}
+/* the torn-off stub in your hand: receipt paper with a torn top, the places to send it written across */
+.share-slip.stub{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:4px 14px;box-sizing:border-box;padding:16px 24px 12px;background:#FBFAF6;color:#2A2927;transform:rotate(-2.5deg);transform-origin:0 0;animation:inhand .25s ease-out;
+  -webkit-mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/10px 5px repeat-x,linear-gradient(#000 0 0) bottom/100% calc(100% - 5px) no-repeat;
+  mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/10px 5px repeat-x,linear-gradient(#000 0 0) bottom/100% calc(100% - 5px) no-repeat}
+.share-slip.stub .share-slip-head{flex-basis:100%;margin:0;font-family:"Courier Prime","Courier New",monospace;font-size:13px;font-weight:700;text-transform:uppercase;color:#2A2927}
+.share-slip.stub button{font-size:14px}
+@keyframes inhand{from{transform:translateY(-10px) rotate(0deg);opacity:0}to{transform:rotate(-2.5deg);opacity:1}}

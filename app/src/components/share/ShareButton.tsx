@@ -8,7 +8,7 @@ type Payload = { game: string; from: string; title: string; text: string; url: s
  * Hand something on: the phone's share sheet on a phone; elsewhere a small handwritten slip with
  * copy link, the usual places, and (for a receipt) save the picture.
  */
-function useHandOn() {
+function useHandOn(onDone?: () => void) {
   const [slip, setSlip] = useState<{ at: DOMRect; p: Payload; receipt: HTMLElement | null } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const flash = (s: string) => {
@@ -19,27 +19,32 @@ function useHandOn() {
     if (hasSheet()) {
       const file = receipt ? await receiptFile(receipt, p.game) : null;
       if ((await shareSheet({ ...p, file })) === "copied") flash("Copied. Now they'll know.");
+      onDone?.();
       return;
     }
     setSlip({ at: el.getBoundingClientRect(), p, receipt });
+  };
+  const close = () => {
+    setSlip(null);
+    onDone?.();
   };
   const ui = slip ? (
     <ShareSlip
       at={slip.at}
       receipt={!!slip.receipt}
-      onClose={() => setSlip(null)}
+      onClose={close}
       onCopy={async () => {
         const p = slip.p;
-        setSlip(null);
+        close();
         if ((await copyLink(p)) === "copied") flash("Copied. Now they'll know.");
       }}
       onPlace={(place) => {
         postOn(place, slip.p);
-        setSlip(null);
+        close();
       }}
       onSave={async () => {
         const r = slip.receipt;
-        setSlip(null);
+        close();
         if (!r) return;
         const file = await receiptFile(r, slip.p.game);
         if (file) saveFile(file, slip.p.game);
@@ -64,13 +69,14 @@ function ShareSlip(o: { at: DOMRect; receipt: boolean; onClose: () => void; onCo
       window.removeEventListener("keydown", key);
     };
   }, [o]);
-  // under the link, kept on screen
-  const left = Math.min(Math.max(8, o.at.left), window.innerWidth - 200);
+  // a receipt's stub: the torn-off stub itself, in your hand where it was; otherwise under the link
+  const stub = o.receipt;
+  const left = stub ? o.at.left : Math.min(Math.max(8, o.at.left), window.innerWidth - 200);
   const below = o.at.bottom + 8;
-  const top = below + 230 > window.innerHeight ? Math.max(8, o.at.top - 238) : below;
+  const top = stub ? Math.min(o.at.top + 6, window.innerHeight - 130) : below + 230 > window.innerHeight ? Math.max(8, o.at.top - 238) : below;
   // on the page itself, not inside the (tilted, scrolling) receipt that would clip it
   return createPortal(
-    <div ref={ref} className="share-slip" role="menu" style={{ left, top }}>
+    <div ref={ref} className={`share-slip${stub ? " stub" : ""}`} role="menu" style={stub ? { left, top, width: o.at.width } : { left, top }}>
       <span className="share-slip-head">send it to</span>
       <button type="button" role="menuitem" onClick={o.onCopy}>
         Copy link
@@ -127,9 +133,13 @@ export function ShareButton({ slug, title, text, children = "Send this to someon
  */
 export function ShareCoupon({ slug, title, text }: { slug: string; title: string; text?: () => string }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const [torn, setTorn] = useState(false);
+  // idle -> torn (it comes away along the dashed line) -> out (being sent) -> printing (a new one) -> idle
+  const [phase, setPhase] = useState<"idle" | "torn" | "out" | "printing">("idle");
   const [lines, setLines] = useState<{ got: string; tier: string }>({ got: "", tier: "" });
-  const { handOn, ui, said } = useHandOn();
+  const { handOn, ui, said } = useHandOn(() => {
+    setPhase("printing");
+    window.setTimeout(() => setPhase("idle"), 450);
+  });
   // the receipt's own score and tier, read once it is on screen
   useEffect(() => {
     const r = ref.current?.closest<HTMLElement>(".result");
@@ -139,17 +149,23 @@ export function ShareCoupon({ slug, title, text }: { slug: string; title: string
   const go = () => {
     const el = ref.current;
     const receipt = el?.closest<HTMLElement>(".result") ?? null;
-    if (!el || !receipt) return;
-    setTorn(true);
-    window.setTimeout(() => setTorn(false), 900);
+    if (!el || !receipt || phase !== "idle") return;
+    setPhase("torn");
     const say = text?.() ?? `I got ${lines.got}${lines.tier ? `, "${lines.tier}"` : ""} on ${title}. Bet you can't beat it.`;
-    void handOn(el, { game: slug, from: "receipt", title, text: say, url: scoreLink(slug, lines.got, lines.tier) }, receipt);
+    const payload = { game: slug, from: "receipt", title, text: say, url: scoreLink(slug, lines.got, lines.tier) };
+    // let it come away first, then hand it on
+    window.setTimeout(() => {
+      setPhase("out");
+      void handOn(el, payload, receipt);
+    }, 380);
   };
   return (
     <>
-      <button ref={ref} type="button" className={`coupon${torn ? " torn" : ""}`} onClick={go} aria-label="Tear off and send to a friend">
-        <span className="coupon-line">For a friend: beat {lines.got}</span>
-        <span className="coupon-cta">{said ?? "tear off"}</span>
+      <button ref={ref} type="button" className={`coupon ${phase}`} onClick={go} aria-label="Tear off and send to a friend">
+        <span className="coupon-paper">
+          <span className="coupon-line">For a friend: beat {lines.got}</span>
+          <span className="coupon-cta">{said ?? "tear off"}</span>
+        </span>
       </button>
       {ui}
     </>
