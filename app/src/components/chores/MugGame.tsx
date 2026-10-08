@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MugGame as Engine, W, H, START_ML, mugTier, type MugEvent, type MugResult } from "../../game/mug";
+import { ResultBest } from "../ResultBest";
 import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Pick up the mug (press and hold)", "Under the lamp, over the plant", "Let go just above the desk", "Before the call starts"];
@@ -265,6 +266,7 @@ export function MugGame() {
                 Coaster<strong>{result.dropped ? "No mug" : result.coaster ? "On it" : "Missed"}</strong>
               </div>
             </div>
+            <ResultBest game="mug" value={Math.round((result.ml / START_ML) * 100)} text={`${Math.round((result.ml / START_ML) * 100)}%`} />
             <ShareCoupon slug="mug" title="Carry a Full Mug" />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>

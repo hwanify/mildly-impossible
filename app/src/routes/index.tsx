@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { chores, newestSlug } from "../chores/registry";
 import type { Chore } from "../chores/types";
+import { readRecords, type Rec } from "../lib/records";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -26,6 +27,11 @@ const lie = (i: number) => {
 };
 
 function Index() {
+  // what you've done here lives in this browser, so it shows up after the page has loaded
+  const [recs, setRecs] = useState<Record<string, Rec> | null>(null);
+  useEffect(() => setRecs(readRecords()), []);
+  const live = chores.filter((c) => c.status === "live");
+  const done = recs ? live.filter((c) => recs[c.slug]).length : 0;
   return (
     <main className="hub">
       <div className="desk">
@@ -36,15 +42,21 @@ function Index() {
             room.
           </p>
           <span className="desk-scrawl">pick something up.</span>
+          {recs && done > 0 && (
+            <span className="desk-progress">
+              {done === live.length ? `all ${live.length} done. still not easy.` : `${done} of ${live.length} done. everyone else seems to manage.`}
+            </span>
+          )}
         </header>
-        {chores.map((c, i) => (c.status === "live" ? <Thing key={c.slug} chore={c} i={i} /> : <Spot key={c.slug} chore={c} i={i} />))}
+        {chores.map((c, i) => (c.status === "live" ? <Thing key={c.slug} chore={c} i={i} rec={recs ? (recs[c.slug] ?? null) : undefined} /> : <Spot key={c.slug} chore={c} i={i} />))}
       </div>
       <p className="hub-foot">more things get left here now and then. none of them get easier.</p>
     </main>
   );
 }
 
-function Thing({ chore, i }: { chore: Chore; i: number }) {
+/** rec: your record here, null if you haven't tried it, undefined until the browser has said. */
+function Thing({ chore, i, rec }: { chore: Chore; i: number; rec?: Rec | null }) {
   const { Thumb, TableItem } = chore;
   return (
     <Link to="/$slug" params={{ slug: chore.slug }} className="desk-item" style={lie(i)} aria-label={chore.title} title={chore.blurb}>
@@ -58,6 +70,13 @@ function Thing({ chore, i }: { chore: Chore; i: number }) {
         )}
       </span>
       <span className="desk-tape">{chore.title}</span>
+      {rec === null && <span className="desk-best untouched">untouched</span>}
+      {rec && (
+        <span className="desk-best">
+          {chore.slug === "jigsaw" ? rec.text : `best: ${rec.text}`}
+          {rec.top ? ` · top ${rec.top}%` : ""}
+        </span>
+      )}
       {chore.slug === newestSlug ? <span className="desk-new">New</span> : null}
       {chore.online ? (
         <span className="desk-online" title="Played with whoever else is here">

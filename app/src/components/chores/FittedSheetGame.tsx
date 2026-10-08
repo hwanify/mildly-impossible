@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sheet, W, H, tierFor, type Judge } from "../../game/fittedSheet";
+import { ResultBest } from "../ResultBest";
 import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = [
@@ -224,6 +225,7 @@ export function FittedSheetGame() {
                 Compactness<strong>{Math.round(result.compact * 100)}%</strong>
               </div>
             </div>
+            <ResultBest game="fitted-sheet" value={result.score} text={String(result.score)} />
             <ShareCoupon slug="fitted-sheet" title="Fold a Fitted Sheet" />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>

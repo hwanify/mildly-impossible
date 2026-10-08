@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
+import { ResultBest } from "../../components/ResultBest";
 import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 
@@ -325,10 +326,11 @@ export function Game() {
                 Edges lifted<strong>{result.edges}</strong>
               </div>
             </div>
+            <ResultBest game="price-sticker" value={Math.floor(result.clean * 100)} text={`${Math.floor(result.clean * 100)}%`} />
             <ShareCoupon slug="price-sticker" title="Peel the Price Sticker" text={shareText} />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
-                Peel another
+                Another sticker
               </button>
               <a className="btn-keep" href="/">
                 All tasks

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ResultBest } from "../../components/ResultBest";
 import { Balance, W, H, KINDS, fmtMass, type BalanceEvent, type Kind } from "./engine";
 import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
@@ -230,6 +231,7 @@ export function Game() {
             <div className="serif result-score">{fmtMass(level.total)}</div>
             <div className="serif result-tier">Within half an ant</div>
             <p className="result-line">Nobody will believe you. You don't fully believe it yourself.</p>
+            <ResultBest game="balance-scale" value={readout.count} text={`${readout.count} things`} />
             <ShareCoupon slug="balance-scale" title="Balance the Scale" />
             <div className="result-row">
               <button className="btn-again" onClick={() => setLevel(null)}>

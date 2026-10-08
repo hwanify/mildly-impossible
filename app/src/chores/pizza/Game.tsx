@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pizza, W, H, CX, CY, R, SLICES, pizzaTier, ratioText, type CutEvent, type PizzaResult } from "./engine";
+import { ResultBest } from "../../components/ResultBest";
 import { ShareButton, ShareCoupon } from "../../components/share/ShareButton";
 
 const STEPS = ["Cut it in half", "Get it to quarters", "Make eight slices"];
@@ -250,6 +251,7 @@ export function PizzaGame() {
                 Time<strong>{fmt(result.time)}</strong>
               </div>
             </div>
+            <ResultBest game="pizza" value={result.ratio} text={`${ratioText(result.ratio)}×`} />
             <ShareCoupon slug="pizza" title="Cut the Pizza Equally" text={shareText} />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
