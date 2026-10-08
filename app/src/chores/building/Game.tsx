@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Building, FIX_NAMES, LEVELS, LEVEL_LINES, W, H, fixStatus, type BuildingEvent, type Fix } from "./engine";
 import { LAST } from "./world";
 import { cleanliness } from "./room";
+import { ShareButton, SaveReceipt } from "../../components/share/ShareButton";
 
 const STEPS = ["Have a look round every floor", "Straighten the picture on 5", "Turn off the tap on 3", "Fix five things around the building"];
 
@@ -56,7 +57,6 @@ export function BuildingGame() {
   const [done, setDone] = useState([false, false, false, false]);
   const [meter, setMeter] = useState("The lobby");
   const [result, setResult] = useState<Result | null>(null);
-  const [shared, setShared] = useState(false);
   const resultRef = useRef<Result | null>(null);
   resultRef.current = result;
 
@@ -268,23 +268,12 @@ export function BuildingGame() {
 
   const stay = () => {
     setResult(null);
-    setShared(false);
   };
 
-  const share = async () => {
-    if (!result) return;
+  const shareText = () => {
+    if (!result) return "";
     const text = `I spent ${fmt(result.time)} looking after a building. I wiped ${result.cleaned} marks and left ${result.tracked} footprints. It's ${result.clean}% clean. The picture is ${result.frame.toFixed(2)}° off.`;
-    const url = `${window.location.origin}/building`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Look After the Building", text, url });
-        return;
-      }
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      setShared(true);
-    } catch {
-      /* cancelled or blocked */
-    }
+    return text;
   };
 
   const tier = result ? tierFor(result) : null;
@@ -326,6 +315,7 @@ export function BuildingGame() {
           <button className="btn-shake" onClick={finish}>
             Leave the building
           </button>
+          <ShareButton slug="building" title="Look After the Building" text={() => `Come and help look after the building. ${meter}.`} />
         </div>
       </div>
       {result && tier && (
@@ -375,9 +365,10 @@ export function BuildingGame() {
               </div>
             </div>
             <div className="result-row">
-              <button className="btn-again" onClick={share}>
-                {shared ? "Copied" : "Share"}
-              </button>
+              <ShareButton className="btn-again" slug="building" title="Look After the Building" text={shareText}>
+                Share
+              </ShareButton>
+              <SaveReceipt slug="building" />
               <button className="btn-shake" onClick={stay}>
                 Go back in
               </button>

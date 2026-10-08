@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pizza, W, H, CX, CY, R, SLICES, pizzaTier, ratioText, type CutEvent, type PizzaResult } from "./engine";
+import { ShareButton, SaveReceipt } from "../../components/share/ShareButton";
 
 const STEPS = ["Cut it in half", "Get it to quarters", "Make eight slices"];
 const CUTS = ["Cut.", "Another cut.", "The cutter is getting confident.", "Keep going."];
@@ -31,7 +32,6 @@ export function PizzaGame() {
   const [count, setCount] = useState({ cuts: 0, pieces: 1 });
   const [toast, setToast] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const [shared, setShared] = useState(false);
   const resultRef = useRef<Result | null>(null);
   resultRef.current = result;
 
@@ -168,24 +168,13 @@ export function PizzaGame() {
     setTime(0);
     setCount({ cuts: 0, pieces: 1 });
     setToast(null);
-    setShared(false);
     setRound((r) => r + 1);
   };
 
-  const share = async () => {
-    if (!result) return;
+  const shareText = () => {
+    if (!result) return "";
     const text = `I cut a pizza into ${SLICES}. The biggest slice is ${ratioText(result.ratio)}× the smallest.`;
-    const url = `${window.location.origin}/pizza`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Cut the Pizza Equally", text, url });
-        return;
-      }
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      setShared(true);
-    } catch {
-      /* cancelled or blocked */
-    }
+    return text;
   };
 
   const done = [count.pieces >= 2, count.pieces >= 4, count.pieces >= SLICES];
@@ -228,6 +217,7 @@ export function PizzaGame() {
           <button className="btn-shake" onClick={fresh}>
             New pizza
           </button>
+          <ShareButton slug="pizza" title="Cut the Pizza Equally" text={() => "Eight people, one pizza, eight equal slices. Apparently."} />
         </div>
       </div>
       {result && tier && (
@@ -261,9 +251,10 @@ export function PizzaGame() {
               </div>
             </div>
             <div className="result-row">
-              <button className="btn-again" onClick={share}>
-                {shared ? "Copied" : "Share result"}
-              </button>
+              <ShareButton className="btn-again" slug="pizza" title="Cut the Pizza Equally" text={shareText}>
+                Share result
+              </ShareButton>
+              <SaveReceipt slug="pizza" />
               <button className="btn-shake" onClick={fresh}>
                 Another pizza
               </button>
