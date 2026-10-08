@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pizza, W, H, CX, CY, R, SLICES, pizzaTier, ratioText, type CutEvent, type PizzaResult } from "./engine";
+import { ResultBest } from "../../components/ResultBest";
 
 const STEPS = ["Cut it in half", "Get it to quarters", "Make eight slices"];
 const CUTS = ["Cut.", "Another cut.", "The cutter is getting confident.", "Keep going."];
@@ -260,6 +261,7 @@ export function PizzaGame() {
                 Time<strong>{fmt(result.time)}</strong>
               </div>
             </div>
+            <ResultBest game="pizza" value={result.ratio} text={`${ratioText(result.ratio)}×`} />
             <div className="result-row">
               <button className="btn-again" onClick={share}>
                 {shared ? "Copied" : "Share result"}

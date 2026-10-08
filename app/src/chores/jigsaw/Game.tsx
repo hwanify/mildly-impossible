@@ -3,6 +3,7 @@ import { Jigsaw, W, H, PIECES, type JigsawEvent } from "./engine";
 import { sceneFor } from "./pictures";
 import { BW, BH, COUNT, unpack } from "./puzzle";
 import type { Board, Deal, Placed } from "./api";
+import { noteCount } from "../../lib/records";
 
 // One jigsaw for everybody: the board lives on the server (api.ts). This page asks it for a piece,
 // tells it when the piece goes in, and looks every few seconds for pieces other people put in.
@@ -238,6 +239,7 @@ export function JigsawGame() {
           knock(true);
           setSteps([true, true]);
           saveMine(g.no, [...g.mine]);
+          noteCount("jigsaw", "piece in", "pieces in");
           if (!e.finished) say(e.met ? "Click. Two bits of the picture just met." : "Click.", 1400);
           place(g.no, e.cell);
           break;
