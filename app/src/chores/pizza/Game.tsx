@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pizza, W, H, CX, CY, R, SLICES, pizzaTier, ratioText, type CutEvent, type PizzaResult } from "./engine";
-import { ShareButton, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
 
 const STEPS = ["Cut it in half", "Get it to quarters", "Make eight slices"];
 const CUTS = ["Cut.", "Another cut.", "The cutter is getting confident.", "Keep going."];
@@ -217,7 +217,7 @@ export function PizzaGame() {
           <button className="btn-shake" onClick={fresh}>
             New pizza
           </button>
-          <ShareButton slug="pizza" title="Cut the Pizza Equally" text={() => "Eight people, one pizza, eight equal slices. Apparently."} />
+          <ShareButton slug="pizza" title="Cut the Pizza Equally" text={() => "Eight people, one pizza, eight equal slices. Apparently."}>Dare the pizza cutter</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -250,10 +250,8 @@ export function PizzaGame() {
                 Time<strong>{fmt(result.time)}</strong>
               </div>
             </div>
+            <ShareCoupon slug="pizza" title="Cut the Pizza Equally" text={shareText} />
             <div className="result-row">
-              <ShareButton slug="pizza" title="Cut the Pizza Equally" text={shareText}>
-                Share
-              </ShareButton>
               <SaveReceipt slug="pizza" />
               <button className="btn-again" onClick={fresh}>
                 Another pizza

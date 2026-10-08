@@ -85,7 +85,7 @@ a.desk-item:focus-visible{outline:2px dashed var(--ink);outline-offset:8px}
 .result-score{order:2;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:72px;line-height:1;letter-spacing:-.04em;margin-top:6px}
 .result-tier{order:3;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase}
 .result-line{order:4;margin:0 0 4px;font-size:13px;text-transform:uppercase}
-.result-row{order:6;display:flex;gap:16px;justify-content:center;align-items:center;margin-top:10px;flex-wrap:wrap;font-family:"Work Sans",system-ui,sans-serif}
+.result-row{order:7;display:flex;gap:16px;justify-content:center;align-items:center;margin-top:10px;flex-wrap:wrap;font-family:"Work Sans",system-ui,sans-serif}
 @media (max-height:900px){.result{gap:2px;font-size:13px;line-height:1.25;padding-top:calc(var(--z) + 8px);padding-bottom:calc(var(--z) + 10px)}.result::before{font-size:13px;padding-bottom:4px}.result-stats{padding:3px 0 5px}.result-score{font-size:50px;margin-top:2px}.result-tier{font-size:14px}.result-line{font-size:12px}.result::after{padding-top:30px;background-size:72% 18px;background-position:center 8px}.result-row{margin-top:4px}.btn-again{padding:8px 16px}}
 a.btn-keep{display:inline-block}
 
@@ -115,10 +115,25 @@ html.play-full,html.play-full body{overflow:hidden}
    then the game's own links, then sharing in a quieter strip of its own under a dashed line */
 .actions .btn-done{order:-2}
 .actions:has(.btn-done)::before{content:"";order:-1;flex-basis:100%;height:0}
-.btn-share{order:99;font:inherit;font-size:13.5px;background:none;border:0;padding:4px 0;color:var(--muted);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(107,106,101,.4);text-underline-offset:4px}
-.btn-share:hover{color:var(--ink);text-decoration-color:var(--ink)}
+.btn-share{order:99;font-family:"Reenie Beanie",cursive;font-size:24px;line-height:1.1;background:none;border:0;padding:2px 0;color:var(--pen);cursor:pointer;text-align:left}
+.btn-share::after{content:" \2192";display:inline-block;transition:transform .15s}
+.btn-share:hover::after{transform:translateX(4px)}
+.result-row .btn-share{font-family:"Work Sans",system-ui,sans-serif;font-size:13px;color:var(--muted);text-decoration:underline;text-decoration-color:rgba(107,106,101,.4);text-underline-offset:4px}
+.result-row .btn-share::after{content:none}
 .actions:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0;border-top:1.5px dashed var(--line);margin:2px 0 -6px}
 /* on a receipt: carry on / leave on the first line, share and save under it */
 .result-row:has(.btn-share)::after{content:"";order:98;flex-basis:100%;height:0}
 .result-row .btn-share{font-size:13px}
 .result-row:has(.btn-share){row-gap:6px}
+/* the stub at the bottom of a receipt, for a friend: tear it off to send it */
+.coupon{order:6;display:flex;flex-direction:column;align-items:center;gap:1px;margin:8px -24px 0;padding:14px 24px 10px;background:none;border:0;border-top:1.5px dashed #2A2927;position:relative;font:inherit;color:inherit;text-transform:uppercase;cursor:pointer;transition:transform .5s cubic-bezier(.3,.6,.4,1),opacity .5s}
+.coupon::before{content:"\2702";position:absolute;top:-11px;left:22px;padding:0 4px;background:#FBFAF6;font-size:15px;line-height:1;text-transform:none}
+.coupon-head{font-weight:700}
+.coupon-cta{margin-top:6px;font-family:"Reenie Beanie",cursive;font-size:23px;line-height:1;text-transform:none;color:var(--pen)}
+.coupon:hover .coupon-cta{text-decoration:underline;text-underline-offset:3px}
+.coupon.torn{transform:translate(18px,26px) rotate(5deg);opacity:0}
+/* on a computer: the slip of places to send it to */
+.share-slip{position:fixed;z-index:60;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:170px;padding:10px 16px 12px;background:var(--slip);box-shadow:var(--shadow);transform:rotate(-1deg);animation:veil .15s ease-out}
+.share-slip-head{font-family:"Reenie Beanie",cursive;font-size:22px;color:var(--muted);margin-bottom:2px}
+.share-slip button{font:inherit;font-size:15px;background:none;border:0;padding:3px 0;color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(28,28,26,.3);text-underline-offset:4px}
+.share-slip button:hover{text-decoration-color:var(--ink)}

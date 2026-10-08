@@ -407,7 +407,7 @@ export function JigsawGame() {
               return `${left ? `${left} pieces left on the jigsaw` : "The jigsaw is finished"}.${mine ? ` I put in ${mine}.` : ""} Come and put a piece in.`;
             }}
           >
-            Invite someone
+            Bring someone in
           </ShareButton>
         </div>
       </div>

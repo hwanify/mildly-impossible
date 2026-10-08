@@ -15,37 +15,59 @@ export function scoreLink(slug: string, score?: string, tier?: string) {
   return u.toString();
 }
 
-/**
- * Hand it to the phone's share sheet (with the receipt picture when the phone can take files), or
- * copy the text and link where there is no share sheet.
- */
-export async function shareOut(o: { game: string; from: string; title: string; text: string; url: string; file?: File | null }): Promise<ShareOutcome> {
-  const report = (method: string) => track("share", { game: o.game, from: o.from, method });
+/** Phones (a touch screen with a share sheet) get the share sheet; everything else gets our slip. */
+export function hasSheet() {
+  return typeof navigator !== "undefined" && !!navigator.share && matchMedia("(pointer: coarse)").matches;
+}
+
+/** The phone's share sheet, with the receipt picture when the phone can take files. */
+export async function shareSheet(o: { game: string; from: string; title: string; text: string; url: string; file?: File | null }): Promise<ShareOutcome> {
   try {
     if (o.file && navigator.canShare?.({ files: [o.file] })) {
       // some apps drop the url when there is a file, so it goes in the text as well
       await navigator.share({ files: [o.file], title: o.title, text: `${o.text} ${o.url}` });
-      report("image");
+      track("share", { game: o.game, from: o.from, method: "image" });
       return "shared";
     }
-    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
-      await navigator.share({ title: o.title, text: o.text, url: o.url });
-      report("sheet");
-      return "shared";
-    }
-    await navigator.clipboard.writeText(`${o.text} ${o.url}`);
-    report("copy");
-    return "copied";
+    await navigator.share({ title: o.title, text: o.text, url: o.url });
+    track("share", { game: o.game, from: o.from, method: "sheet" });
+    return "shared";
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return "cancelled";
-    try {
-      await navigator.clipboard.writeText(`${o.text} ${o.url}`);
-      report("copy");
-      return "copied";
-    } catch {
-      return "cancelled";
-    }
+    return copyLink(o);
   }
+}
+
+/** Copy the text and the link. */
+export async function copyLink(o: { game: string; from: string; text: string; url: string }): Promise<ShareOutcome> {
+  try {
+    await navigator.clipboard.writeText(`${o.text} ${o.url}`);
+    track("share", { game: o.game, from: o.from, method: "copy" });
+    return "copied";
+  } catch {
+    return "cancelled";
+  }
+}
+
+export type Place = "x" | "whatsapp" | "reddit" | "facebook";
+export const PLACES: { id: Place; name: string }[] = [
+  { id: "x", name: "X" },
+  { id: "whatsapp", name: "WhatsApp" },
+  { id: "reddit", name: "Reddit" },
+  { id: "facebook", name: "Facebook" },
+];
+
+/** Open the place's own "post this" page in a new tab. */
+export function postOn(place: Place, o: { game: string; from: string; title: string; text: string; url: string }) {
+  const e = encodeURIComponent;
+  const href = {
+    x: `https://twitter.com/intent/tweet?text=${e(o.text)}&url=${e(o.url)}`,
+    whatsapp: `https://wa.me/?text=${e(`${o.text} ${o.url}`)}`,
+    reddit: `https://www.reddit.com/submit?url=${e(o.url)}&title=${e(o.text)}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${e(o.url)}`,
+  }[place];
+  window.open(href, "_blank", "noopener,noreferrer");
+  track("share", { game: o.game, from: o.from, method: place });
 }
 
 /** Save a picture to the device. */
@@ -81,6 +103,7 @@ export async function receiptFile(el: HTMLElement, slug: string): Promise<File |
     return [name, value] as const;
   });
   const pictures = [...el.querySelectorAll("canvas")].filter((c) => c.width > 0 && c.height > 0);
+  const coupon = [...el.querySelectorAll(".coupon-line")].map((n) => n.textContent?.replace(/\s+/g, " ").trim() ?? "").filter(Boolean);
   try {
     await Promise.all([document.fonts.load(`700 40px ${MONO}`), document.fonts.load(`400 20px ${MONO}`)]);
   } catch {
@@ -180,6 +203,31 @@ export async function receiptFile(el: HTMLElement, slug: string): Promise<File |
     },
   });
   textLines("THANK YOU. PLEASE TRY AGAIN.", `400 11.5px ${MONO}`, 16);
+  if (coupon.length) {
+    // the stub for a friend, with a pair of scissors on its dashed line
+    gap(10);
+    ops.push({
+      h: 18,
+      draw: (g, y) => {
+        g.setLineDash([5, 4]);
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(0, y + 9);
+        g.lineTo(Wd, y + 9);
+        g.stroke();
+        g.setLineDash([]);
+        g.fillStyle = PAPER;
+        g.fillRect(pad + 14, y, 22, 18);
+        g.fillStyle = INK;
+        g.font = `400 16px ${MONO}`;
+        g.textAlign = "left";
+        g.fillText("✂", pad + 16, y + 14);
+      },
+    });
+    gap(6);
+    textLines(coupon[0].toUpperCase(), `700 13px ${MONO}`, 19);
+    for (const l of coupon.slice(1)) textLines(l.toUpperCase(), `400 13px ${MONO}`, 17);
+  }
   textLines(`mildlyimpossible.com/${slug}`, `700 13px ${MONO}`, 20);
   gap(22);
 

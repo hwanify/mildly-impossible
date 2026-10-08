@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Building, FIX_NAMES, LEVELS, LEVEL_LINES, W, H, fixStatus, type BuildingEvent, type Fix } from "./engine";
 import { LAST } from "./world";
 import { cleanliness } from "./room";
-import { ShareButton, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
 
 const STEPS = ["Have a look round every floor", "Straighten the picture on 5", "Turn off the tap on 3", "Fix five things around the building"];
 
@@ -315,7 +315,7 @@ export function BuildingGame() {
           <button className="btn-shake" onClick={finish}>
             Leave the building
           </button>
-          <ShareButton slug="building" title="Look After the Building" text={() => `Come and help look after the building. ${meter}.`} />
+          <ShareButton slug="building" title="Look After the Building" text={() => `Come and help look after the building. ${meter}.`}>Bring someone in</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -364,10 +364,8 @@ export function BuildingGame() {
                 Time<strong>{fmt(result.time)}</strong>
               </div>
             </div>
+            <ShareCoupon slug="building" title="Look After the Building" text={shareText} />
             <div className="result-row">
-              <ShareButton slug="building" title="Look After the Building" text={shareText}>
-                Share
-              </ShareButton>
               <SaveReceipt slug="building" />
               <button className="btn-again" onClick={stay}>
                 Go back in

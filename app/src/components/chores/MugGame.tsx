@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MugGame as Engine, W, H, START_ML, mugTier, type MugEvent, type MugResult } from "../../game/mug";
-import { ShareButton, SaveReceipt } from "../../components/share/ShareButton";
+import { ShareButton, ShareCoupon, SaveReceipt } from "../../components/share/ShareButton";
 
 const STEPS = ["Pick up the mug (press and hold)", "Under the lamp, over the plant", "Let go just above the desk", "Before the call starts"];
 const SPILLS = ["A drop. The rug saw that.", "There goes some.", "That one landed.", "The floor is having coffee too."];
@@ -235,7 +235,7 @@ export function MugGame() {
           <button className="btn-shake" onClick={fresh}>
             Pour a new one
           </button>
-          <ShareButton slug="mug" title="Carry a Full Mug" />
+          <ShareButton slug="mug" title="Carry a Full Mug">Dare a steady hand</ShareButton>
         </div>
       </div>
       {result && tier && (
@@ -265,11 +265,11 @@ export function MugGame() {
                 Coaster<strong>{result.dropped ? "No mug" : result.coaster ? "On it" : "Missed"}</strong>
               </div>
             </div>
+            <ShareCoupon slug="mug" title="Carry a Full Mug" />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
                 Pour another
               </button>
-              <ShareButton slug="mug" title="Carry a Full Mug" />
               <SaveReceipt slug="mug" />
               <a className="btn-keep" href="/">
                 All tasks
