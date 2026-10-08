@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Building, FIX_NAMES, LEVELS, LEVEL_LINES, W, H, fixStatus, type BuildingEvent, type Fix } from "./engine";
 import { LAST } from "./world";
 import { cleanliness } from "./room";
+import { ResultBest } from "../../components/ResultBest";
 
 const STEPS = ["Have a look round every floor", "Straighten the picture on 5", "Turn off the tap on 3", "Fix five things around the building"];
 
@@ -374,6 +375,7 @@ export function BuildingGame() {
                 Time<strong>{fmt(result.time)}</strong>
               </div>
             </div>
+            <ResultBest game="building" value={result.fixed} text={`${result.fixed} fixed`} />
             <div className="result-row">
               <button className="btn-again" onClick={share}>
                 {shared ? "Copied" : "Share"}

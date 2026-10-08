@@ -4,6 +4,7 @@ import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { roomRequest } from "./lib/rooms.server";
 import { jigsawApi, d1Store } from "./chores/jigsaw/api";
+import { scoreApi } from "./lib/scores";
 import type { D1Database } from "@cloudflare/workers-types";
 
 // The multiplayer rooms' Durable Object class (app.manifest.json "durableObject": "Rooms").
@@ -49,6 +50,9 @@ export default {
       // WebSocket upgrades for multiplayer rooms go straight to their room, before SSR.
       const room = await roomRequest(request, env);
       if (room) return room;
+      // The worldwide tally of scores lives in D1 too.
+      const score = await scoreApi(request, (env as { DB?: D1Database } | undefined)?.DB);
+      if (score) return score;
       // The shared jigsaw's board lives in D1.
       if (new URL(request.url).pathname.startsWith("/api/jigsaw")) {
         const db = (env as { DB?: D1Database } | undefined)?.DB;

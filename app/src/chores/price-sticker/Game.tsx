@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sticker, W, H, SPEED_MAX, KINDS, stickerTier, type Kind, type StickerEvent, type StickerResult } from "./engine";
+import { ResultBest } from "../../components/ResultBest";
 
 
 const STEPS = ["Lift an edge", "Work in from a few sides", "Get all of it off", "Rub off what's left"];
@@ -335,12 +336,13 @@ export function Game() {
                 Edges lifted<strong>{result.edges}</strong>
               </div>
             </div>
+            <ResultBest game="price-sticker" value={Math.floor(result.clean * 100)} text={`${Math.floor(result.clean * 100)}%`} />
             <div className="result-row">
               <button className="btn-again" onClick={share}>
                 {shared ? "Copied" : "Share result"}
               </button>
               <button className="btn-shake" onClick={fresh}>
-                Peel another
+                Another sticker
               </button>
               <a className="btn-keep" href="/">
                 All tasks

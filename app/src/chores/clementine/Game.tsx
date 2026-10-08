@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Peel, W, H, peelTier, type FruitKind, type PeelEvent, type PeelResult } from "./engine";
+import { ResultBest } from "../../components/ResultBest";
 
 const STEPS = ["Dig a thumbnail into the peel", "Pull slowly. Fast pulls tear", "Get all of the peel off", "Pull off the white threads (optional)"];
 const SNAPS = {
@@ -314,6 +315,7 @@ export function ClementineGame() {
                 Hanging at once<strong>{maxHanging.current}</strong>
               </div>
             </div>
+            <ResultBest game="clementine" value={result.pieces} text={`${result.pieces} ${result.pieces === 1 ? "piece" : "pieces"}`} />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
                 Peel another

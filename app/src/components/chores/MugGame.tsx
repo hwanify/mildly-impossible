@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MugGame as Engine, W, H, START_ML, mugTier, type MugEvent, type MugResult } from "../../game/mug";
+import { ResultBest } from "../ResultBest";
 
 const STEPS = ["Pick up the mug (press and hold)", "Under the lamp, over the plant", "Let go just above the desk", "Before the call starts"];
 const SPILLS = ["A drop. The rug saw that.", "There goes some.", "That one landed.", "The floor is having coffee too."];
@@ -263,6 +264,7 @@ export function MugGame() {
                 Coaster<strong>{result.dropped ? "No mug" : result.coaster ? "On it" : "Missed"}</strong>
               </div>
             </div>
+            <ResultBest game="mug" value={Math.round((result.ml / START_ML) * 100)} text={`${Math.round((result.ml / START_ML) * 100)}%`} />
             <div className="result-row">
               <button className="btn-again" onClick={fresh}>
                 Pour another
